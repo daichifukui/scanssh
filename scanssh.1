@@ -111,6 +111,9 @@ Specifies the address of the local interface.  This is used to speed
 up the scanning by pre-probing the addresses with
 .Dv TCP-SYN
 packets.
+.Pp
+Please note that you will have to be root (under Linux at any rate) to use
+this option.
 .El
 .Pp
 The output from 
@@ -160,3 +163,7 @@ At the moment,
 .Nm
 leaves a one line entry in the log file of the ssh server.  It is
 probably not possible to avoid that.
+.Sh VERSION
+This man page documents
+.Nm
+version 1.60b (Debian GNU/Linux package of version 1.6b)

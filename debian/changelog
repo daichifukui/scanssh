@@ -1,0 +1,28 @@
+scanssh (1.60b-1) unstable; urgency=low
+
+  * New upstream release
+  * Version number massaged (this is "1.6b" in upstream) due to my messing
+    up the version number for 1.55.
+
+ -- Rene Weber <rene_debmaint@elvenlord.com>  Sun, 16 Dec 2001 16:21:35 -0500
+
+scanssh (1.55-1) unstable; urgency=low
+
+  * New upstream release
+  * This version does away with the previously reported limit of 65536 hosts
+    which was the result of a bug.
+
+ -- Rene Weber <rene_debmaint@elvenlord.com>  Fri,  6 Apr 2001 20:55:45 -0400
+
+scanssh (1.5-1) unstable; urgency=low
+
+  * Initial Release.  (closes: #88567)
+  * Incremented maximum hosts to 65536 (from 64000) and documented the
+    limitation (previously undocumented).
+  * Added documentation of version number to man page and executeable.
+
+ -- Rene Weber <rene_debmaint@elvenlord.com>  Wed, 21 Mar 2001 19:19:44 -0500
+
+Local variables:
+mode: debian-changelog
+End:

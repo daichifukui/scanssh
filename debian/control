@@ -1,0 +1,16 @@
+Source: scanssh
+Section: net
+Priority: optional
+Maintainer: Rene Weber <rene_debmaint@elvenlord.com>
+Build-Depends: debhelper (>> 2.0.0), libpcap-dev (>= 0.6.1-2)
+Standards-Version: 3.5.6
+
+Package: scanssh
+Architecture: any
+Depends: ${shlibs:Depends}
+Description: get SSH server versions for an entire network
+ The scanssh protocol scanner scans a list of addresses and networks for
+ running SSH protocol servers and their version numbers.  The scanssh protocol
+ scanner supports random selection of IP addresses from large network ranges
+ and is useful for gathering statistics on the deployment of SSH protocol
+ servers in a company or the Internet as whole.
