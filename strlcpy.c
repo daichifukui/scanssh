@@ -1,5 +1,5 @@
-/* $Id: strlcat.c,v 1.1 2000/09/06 19:10:14 provos Exp $ */
-/*	$OpenBSD: strlcat.c,v 1.1 1998/07/01 01:29:45 millert Exp $	*/
+/* $Id: strlcpy.c,v 1.1 2004/03/31 07:40:49 provos Exp $ */
+/*	$OpenBSD: strlcpy.c,v 1.2 1998/11/06 04:33:16 wvdputte Exp $	*/
 
 /*
  * Copyright (c) 1998 Todd C. Miller <Todd.Miller@courtesan.com>
@@ -29,19 +29,18 @@
  */
 
 #if defined(LIBC_SCCS) && !defined(lint)
-static char *rcsid = "$OpenBSD: strlcat.c,v 1.1 1998/07/01 01:29:45 millert Exp $";
+static char *rcsid = "$OpenBSD: strlcpy.c,v 1.2 1998/11/06 04:33:16 wvdputte Exp $";
 #endif /* LIBC_SCCS and not lint */
 
 #include <sys/types.h>
 #include <string.h>
 
 /*
- * Appends src to string dst of size siz (unlike strncat, siz is the
- * full size of dst, not space left).  At most siz-1 characters
+ * Copy src to string dst of size siz.  At most siz-1 characters
  * will be copied.  Always NUL terminates (unless siz == 0).
  * Returns strlen(src); if retval >= siz, truncation occurred.
  */
-size_t strlcat(dst, src, siz)
+size_t strlcpy(dst, src, siz)
 	char *dst;
 	const char *src;
 	size_t siz;
@@ -49,16 +48,9 @@ size_t strlcat(dst, src, siz)
 	register char *d = dst;
 	register const char *s = src;
 	register size_t n = siz;
-	size_t dlen;
-
-	/* Find the end of dst and adjust bytes left */
-	while (*d != '\0' && n != 0)
-		d++;
-	dlen = d - dst;
-	n -= dlen;
 
 	if (n == 0)
-		return(dlen + strlen(s));
+		return(strlen(s));
 	while (*s != '\0') {
 		if (n != 1) {
 			*d++ = *s;
@@ -68,5 +60,5 @@ size_t strlcat(dst, src, siz)
 	}
 	*d = '\0';
 
-	return(dlen + (s - src));	/* count does not include NUL */
+	return(s - src);	/* count does not include NUL */
 }

@@ -30,9 +30,8 @@
 
 struct exclude {
 	TAILQ_ENTRY (exclude) e_next;
-	sa_family_t e_type;
-	struct in_addr e_ipv4s;
-	struct in_addr e_ipv4e;
+
+	struct addr e_net;
 };
 
 TAILQ_HEAD (exclude_list, exclude);
@@ -42,8 +41,7 @@ extern struct exclude_list rndexclqueue;
 extern char *excludefile;
 
 int setupexcludes(void);
-struct in_addr exclude(struct in_addr, struct exclude_list *);
-int parseaddress(char *, struct in_addr *, int *);
+struct addr exclude(struct addr, struct exclude_list *);
 
 void rndsboxinit(u_int32_t);
 u_int32_t rndgetaddr(int, u_int32_t);

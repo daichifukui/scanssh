@@ -1,3 +1,45 @@
+scanssh (2.0-4) unstable; urgency=high
+
+  * Rebuild against new libevent. (closes: #294399)
+
+ -- Rene Weber <rene_debmaint@public.e-mail.elvenlord.com>  Fri, 11 Feb 2005 00:57:05 -0500
+
+scanssh (2.0-3) unstable; urgency=low
+
+  * Take the package back from Andrew with his approval.
+  * Removed obsolete (and now incorrect) version specifier in the man page.
+  * Many thanks to Andrew for taking care of this package in my absence.
+
+ -- Rene Weber <rene_debmaint@public.e-mail.elvenlord.com>  Sat,  3 Jul 2004 15:44:07 -0400
+
+scanssh (2.0-2) unstable; urgency=low
+
+  * Added README.Debian
+  * Fixed up debian/watch
+  * debian/rules: remove config.log on clean
+
+ -- Andrew Pollock <apollock@debian.org>  Wed, 19 May 2004 00:31:02 +1000
+
+scanssh (2.0-1) unstable; urgency=low
+
+  * New upstream release
+  * New maintainer (closes: #244454)
+  * debian/control: build depend on libdumbnet-dev and libevent-dev
+  * debian/copyright: de-dh_make-boilerplated
+  * debian/rules: Support DEB_BUILD_OPTIONS for compiler optimization
+  * Bumped standards version to 3.6.1
+  * debian/changelog: removed emacs crap from bottom
+
+ -- Andrew Pollock <apollock@debian.org>  Wed, 19 May 2004 00:19:10 +1000
+
+scanssh (1.60b-1.1) unstable; urgency=low
+
+  * Non maintainer upload
+  * Rebuilt with new libpcap to remove dependency on libpcap0, which I
+    got removed from unstable by accident. Sorry about this...
+
+ -- Torsten Landschoff <torsten@debian.org>  Sat, 10 Aug 2002 11:37:30 +0200
+
 scanssh (1.60b-1) unstable; urgency=low
 
   * New upstream release
@@ -22,7 +64,3 @@ scanssh (1.5-1) unstable; urgency=low
   * Added documentation of version number to man page and executeable.
 
  -- Rene Weber <rene_debmaint@elvenlord.com>  Wed, 21 Mar 2001 19:19:44 -0500
-
-Local variables:
-mode: debian-changelog
-End:

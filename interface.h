@@ -1,5 +1,5 @@
 /*
- * Copyright 2000 Niels Provos <provos@citi.umich.edu>
+ * Copyright 2003 Niels Provos <provos@citi.umich.edu>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -10,7 +10,10 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 3. The name of the author may not be used to endorse or promote products
+ * 3. All advertising materials mentioning features or use of this software
+ *    must display the following acknowledgement:
+ *      This product includes software developed by Niels Provos.
+ * 4. The name of the author may not be used to endorse or promote products
  *    derived from this software without specific prior written permission.
  *
  * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
@@ -25,12 +28,27 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PCAP_H_
-#define _PCAP_H_
+#ifndef _INTERFACE_
+#define _INTERFACE_
 
-pcap_t *pcap_filter_init(char *);
-int pcap_get_address(pcap_t *, struct in_addr *);
-void synprobe_init(char *);
-int synprobe_send(struct in_addr, u_int32_t *);
+struct interface {
+	TAILQ_ENTRY(interface) next;
 
-#endif /* _PCAP_H_ */
+	struct intf_entry if_ent;
+	struct event if_recvev;
+	pcap_t *if_pcap;
+	eth_t *if_eth;
+	int if_dloff;
+
+	char if_filter[1024];
+};
+
+void interface_initialize(void);
+void interface_init(char *, int, char **, char *);
+struct interface *interface_find(char *);
+struct interface *interface_find_addr(struct addr *);
+
+void interface_close(struct interface *);
+void interface_close_all(void);
+
+#endif /* _INTERFACE_ */
