@@ -2,12 +2,12 @@ Source: scanssh
 Section: net
 Priority: optional
 Maintainer: Rene Weber <rene_debmaint@public.e-mail.elvenlord.com>
-Build-Depends: debhelper (>> 2.0.0), libpcap-dev (>= 0.6.1-2), libdumbnet-dev, libevent-dev (>= 0.8-1)
-Standards-Version: 3.6.1
+Build-Depends: debhelper (>= 9), libpcap0.8-dev, libdumbnet-dev, libevent-dev (>= 0.8-1)
+Standards-Version: 3.9.6
 
 Package: scanssh
 Architecture: any
-Depends: ${shlibs:Depends}
+Depends: ${misc:Depends}, ${shlibs:Depends}
 Description: get SSH server versions for an entire network
  The ScanSSH protocol scanner scans a list of addresses and networks for
  running SSH protocol servers and their version numbers.  Version 2.0 adds

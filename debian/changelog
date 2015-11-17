@@ -1,3 +1,15 @@
+scanssh (2.0-4.1) unstable; urgency=medium
+
+  * Non-maintainer upload.
+  * Upgraded DH level to 9. (Closes: #800223)
+  * debian/control:
+      - Added the ${misc:Depends} variable to Depends field.
+      - Bumped Standards-Version to 3.9.6.
+      - Replaced from libpcap-dev to libpcap0.8-dev in
+        Build-Depends field. (Closes: #422558)
+
+ -- Joao Eriberto Mota Filho <eriberto@debian.org>  Tue, 17 Nov 2015 20:00:11 -0200
+
 scanssh (2.0-4) unstable; urgency=high
 
   * Rebuild against new libevent. (closes: #294399)
