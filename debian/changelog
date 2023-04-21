@@ -1,3 +1,12 @@
+scanssh (2.0-4.3) unstable; urgency=medium
+
+  * Non-maintainer upload.
+  * Add missing licenses, convert to machine-readable format. (Closes: #1034699)
+  * Convert to source format 3.0 (quilt).
+  * d/watch: Update to version 3 (no changes).
+
+ -- Bastian Germann <bage@debian.org>  Sat, 22 Apr 2023 00:25:45 +0200
+
 scanssh (2.0-4.2) unstable; urgency=medium
 
   * Non-maintainer upload.
