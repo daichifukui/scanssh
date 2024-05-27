@@ -3,7 +3,7 @@ Comment:
  This package was debianized by Rene Weber <rene_debmaint@elvenlord.com> on
  Wed, 28 Feb 2001 18:47:28 -0500.
 Source:
- It was downloaded from http://www.monkey.org/~provos/scanssh/
+ https://github.com/ofalk/scanssh
 Upstream-Contact:
  Niels Provos <provos@citi.umich.edu>
 

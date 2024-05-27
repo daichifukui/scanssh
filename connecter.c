@@ -52,6 +52,15 @@
 #include <dnet.h>
 
 #include "scanssh.h"
+#include "socks.h"
+
+#ifdef DEBUG
+extern int debug;
+#define DFPRINTF(x)	if (debug) fprintf x
+#else
+#define DFPRINTF(x)
+#endif
+
 
 /* Global imports */
 
@@ -61,6 +70,10 @@ extern char *ssh_ipalias;
 
 extern struct scanner **ss_scanners;
 extern int ss_nscanners;
+
+extern struct socksq socks_host;
+
+extern rand_t *ss_rand;
 
 /* Local globals */
 int scan_nhosts;		/* Number of hosts that we are scanning */
@@ -266,6 +279,8 @@ ssh_readcb(struct bufferevent *bev, void *parameter)
 	struct argument *arg = parameter;
 	int res;
 
+	DFPRINTF((stderr, "%s: called\n", __func__));
+
 	if ((res = ssh_process_line(EVBUFFER_INPUT(bev), arg)) == -1)
 		return;
 
@@ -284,6 +299,8 @@ void
 ssh_writecb(struct bufferevent *bev, void *parameter)
 {
 	struct argument *arg = parameter;
+
+	DFPRINTF((stderr, "%s: called\n", __func__));
 
 	if (!ssh_sendident || (arg->a_flags & SSH_DIDWRITE)) {
 		if (arg->a_flags & SSH_GOTREAD)
@@ -309,7 +326,12 @@ ssh_errorcb(struct bufferevent *bev, short what, void *parameter)
 		postres(arg, state->firstline);
 		success = 1;
 	} else {
-		postres(arg, "<error>");
+		postres(arg, "<ssh error on %s:%s%s%s: %s>",
+		    what & EV_READ ? "read" : "write",
+		    what & EVBUFFER_ERROR ? " EV_ERROR" : "",
+		    what & EVBUFFER_EOF ? " EV_EOF" : "",
+		    what & EVBUFFER_TIMEOUT ? " EV_TIMEOUT" : "",
+		    strerror(errno));
 		success = 0;
 	}
 	scanhost_return(bev, arg, success);
@@ -386,13 +408,12 @@ make_socket(int (*f)(int, const struct sockaddr *, socklen_t),
 	return (fd);
 }
 
-void
-scanhost_connectcb(int fd, short what, void *parameter)
+int
+scanhost_check_socketerror(struct argument *arg, short what)
 {
-	struct argument *arg = parameter;
-	struct bufferevent *bev = NULL;
 	int error;
 	socklen_t errsz = sizeof(error);
+	int fd = arg->a_fd;
 
 	if (what == EV_TIMEOUT) {
 		postres(arg, "<timeout>");
@@ -416,6 +437,19 @@ scanhost_connectcb(int fd, short what, void *parameter)
 		goto error;
 	}
 
+	return (0);
+
+ error:
+	scanhost_return(NULL, arg, 0);
+	return (-1);
+}
+
+struct bufferevent *
+scanhost_postconnect_setup(struct argument *arg)
+{
+	struct bufferevent *bev = NULL;
+	int fuzz;
+
 	/* We successfully connected to the host */
 
 	bev = bufferevent_new(arg->a_fd,
@@ -428,10 +462,161 @@ scanhost_connectcb(int fd, short what, void *parameter)
 		goto error;
 	}
 
-	bufferevent_settimeout(bev, SHORTWAIT, SHORTWAIT);
+	fuzz = rand_uint16(ss_rand) % 10;
+	bufferevent_settimeout(bev, SHORTWAIT + fuzz, SHORTWAIT + fuzz);
 	bufferevent_enable(bev, EV_READ|EV_WRITE);
 
 	(*arg->a_scanner->init)(bev, arg);
+
+	return (bev);
+
+ error:
+	scanhost_return(NULL, arg, 0);
+	return (NULL);
+}
+
+void
+scanhost_connectcb(int fd, short what, void *parameter)
+{
+	struct argument *arg = parameter;
+
+	if (scanhost_check_socketerror(arg, what) == -1)
+		return;
+
+	scanhost_postconnect_setup(arg);
+}
+
+static void
+socks_readcb(struct bufferevent *bev, void *parameter)
+{
+	struct argument *arg = parameter;
+	struct bufferevent *newbev = NULL;
+	struct socks4_cmd reply;
+	
+	DFPRINTF((stderr, "%s: called\n", __func__));
+
+	if (EVBUFFER_LENGTH(bev->input) < sizeof(reply))
+		goto error;
+
+	bufferevent_read(bev, &reply, sizeof(reply));
+	DFPRINTF((stderr, "Version: %d, Reply: %d\n",
+		     reply.version, reply.command));
+
+	if (0 != reply.version)
+		goto error;
+
+	switch (reply.command) {
+	case SOCKS4_RESP_SUCCESS:
+		break;
+	case SOCKS4_RESP_FAILURE:
+		postres(arg, "<socks error: server failure>");
+		goto done;
+	case SOCKS4_RESP_NOIDENT:
+		postres(arg, "<socks error: no ident>");
+		goto done;
+	case SOCKS4_RESP_BADIDENT:
+		postres(arg, "<socks error: bad ident>");
+		goto done;
+	default:
+		postres(arg, "<socks error: response>");
+		goto done;
+	}
+
+	/* We need to unregister the event's first due to a bug in libevent */
+	bufferevent_disable(bev, EV_READ|EV_WRITE);
+
+	/* Call the original connect callback to take care of the rest */
+	if ((newbev = scanhost_postconnect_setup(arg)) != NULL) {
+		evbuffer_add_buffer(newbev->input, bev->input);
+		/*
+		 * If we have more data buffered, the we need to append it
+		 * to the new read buffer and if necessary call the read
+		 * callback.
+		 * Unfortunately, this assumes a lot about the internals of
+		 * libevent.
+		 */
+		if (EVBUFFER_LENGTH(newbev->input))
+			newbev->readcb(newbev, newbev->cbarg);
+	}
+
+	bufferevent_free(bev);
+	return;
+
+ error:
+	postres(arg, "<socks read error>");
+
+ done:
+	bufferevent_free(bev);
+	scanhost_return(NULL, arg, 0);
+}
+
+static void
+socks_writecb(struct bufferevent *bev, void *parameter)
+{
+	struct argument *arg = parameter;
+	struct socks4_cmd cmd;
+
+	DFPRINTF((stderr, "%s: called\n", __func__));
+
+	if (arg->a_flags != 0)
+		return;
+
+	/* Connect to the remote server */
+	memset(&cmd, 0, sizeof(cmd));
+	cmd.version = SOCKS_VERSION4;
+	cmd.command = SOCKS_CMD_CONNECT;
+	cmd.dstport = htons(arg->a_ports[0].port);
+	memcpy(&cmd.address.s_addr, &arg->addr.addr_ip,
+	    sizeof(struct in_addr));
+
+	bufferevent_write(bev, &cmd, sizeof(cmd));
+	bufferevent_write(bev, SSHUSERAGENT, sizeof(SSHUSERAGENT));
+
+	arg->a_flags = SOCKS_WAITING_COMMANDRESPONSE;
+	bufferevent_enable(bev, EV_READ);
+}
+
+void
+socks_errorcb(struct bufferevent *bev, short what, void *parameter)
+{
+	struct argument *arg = parameter;
+
+	DFPRINTF((stderr, "%s: called\n", __func__));
+
+	postres(arg, "<socks error on %s:%s%s%s: %s>",
+	    what & EV_READ ? "read" : "write",
+	    what & EVBUFFER_ERROR ? " EV_ERROR" : "",
+	    what & EVBUFFER_EOF ? " EV_EOF" : "",
+	    what & EVBUFFER_TIMEOUT ? " EV_TIMEOUT" : "",
+	    strerror(errno));
+	bufferevent_free(bev),
+	scanhost_return(NULL, arg, -1);
+}
+
+void
+scanhost_socks_connectcb(int fd, short what, void *parameter)
+{
+	struct argument *arg = parameter;
+	struct bufferevent *bev = NULL;
+
+	if (scanhost_check_socketerror(arg, what) == -1)
+		return;
+
+	/* We successfully connected to the host */
+
+	bev = bufferevent_new(arg->a_fd, socks_readcb, socks_writecb,
+	    socks_errorcb, arg);
+	if (bev == NULL) {
+		warnx("%s: bufferevent_new", __func__);
+		postres(arg, "<error: memory>");
+		goto error;
+	}
+
+	bufferevent_settimeout(bev, 30, 30);
+	bufferevent_disable(bev, EV_READ);
+	bufferevent_enable(bev, EV_WRITE);
+
+	arg->a_flags = 0;	
 
 	return;
 
@@ -445,13 +630,30 @@ scanhost(struct argument *arg)
 {
 	struct timeval tv;
 	uint16_t port = arg->a_ports[0].port;
+	void (*cb)(int, short, void *);
 
 	arg->a_flags = 0;
-	arg->a_fd = make_socket(connect, addr_ntoa(&arg->addr), port);
-	if (arg->a_fd == -1)
-		return (-1);
+	if (TAILQ_FIRST(&socks_host) == NULL) {
+		arg->a_fd = make_socket(connect, addr_ntoa(&arg->addr), port);
+		if (arg->a_fd == -1)
+			return (-1);
 
-	event_set(&arg->ev, arg->a_fd, EV_WRITE, scanhost_connectcb, arg);
+		cb = scanhost_connectcb;
+	} else {
+		struct socks_host *single_host = TAILQ_FIRST(&socks_host);
+
+		/* Rotate the entries around */
+		TAILQ_REMOVE(&socks_host, single_host, next);
+		TAILQ_INSERT_TAIL(&socks_host, single_host, next);
+
+		arg->a_fd = make_socket(connect,
+		    addr_ntoa(&single_host->host), single_host->port);
+		if (arg->a_fd == -1)
+			return (-1);
+		cb = scanhost_socks_connectcb;
+	}
+
+	event_set(&arg->ev, arg->a_fd, EV_WRITE, cb, arg);
 
 	timerclear(&tv);
 	tv.tv_sec = LONGWAIT;
@@ -460,9 +662,19 @@ scanhost(struct argument *arg)
 	return (0);
 }
 
+/*
+ * Success parameter:
+ * -2 - scanner timeout, stop scanning and go to next host.
+ * -1 - scanner reset?, stop scanning, go to next port.
+ *  0 - current scanner failed, continue with next scanner
+ *  1 - current scanner succeeded, stop scanning and report success
+ */
+
 void
 scanhost_return(struct bufferevent *bev, struct argument *arg, int success)
 {
+	int done = 0;
+
 	if (bev != NULL) {
 		(*arg->a_scanner->finalize)(bev, arg);
 		bufferevent_free(bev);
@@ -477,10 +689,27 @@ scanhost_return(struct bufferevent *bev, struct argument *arg, int success)
 	 * use a different scanner on it.
 	 */
 	arg->a_scanneroff++;
-	if (bev != NULL && !success && arg->a_scanneroff < ss_nscanners) {
+	if (success == -2) {
+		printres(arg, arg->a_ports[0].port, "<timeout>");
+
+		/* timeout - host is down */
+		while (arg->a_nports)
+			ports_remove(arg, arg->a_ports[0].port);
+
+	} else if (success == -1) {
+		/* reset? */
+		printres(arg, arg->a_ports[0].port, "<refused>");
+		done = 1;
+
+	} else if (bev != NULL && !success &&
+	    arg->a_scanneroff < ss_nscanners) {
 		arg->a_scanner = ss_scanners[arg->a_scanneroff];
 	} else {
 		printres(arg, arg->a_ports[0].port, arg->a_res);
+		done = 1;
+	}
+
+	if (done) {
 		arg->a_scanneroff = 0;
 		arg->a_scanner = ss_scanners[0];
 		ports_remove(arg, arg->a_ports[0].port);
@@ -520,13 +749,17 @@ scanhost_ready(struct argument *arg)
 void
 scanhost_fromlist(void)
 {
+	extern int max_scanqueue_size;
 	struct argument *arg;
-	while (scan_nhosts < MAXSCANQUEUESZ &&
+	while (scan_nhosts < max_scanqueue_size &&
 	    (arg = TAILQ_FIRST(&readyqueue)) != NULL) {
 
 		/* Out of file descriptors, we need to try again later */
-		if (scanhost(arg) == -1)
+		if (scanhost(arg) == -1) {
+			TAILQ_REMOVE(&readyqueue, arg, a_next);
+			TAILQ_INSERT_TAIL(&readyqueue, arg, a_next);
 			break;
+		}
 
 		TAILQ_REMOVE(&readyqueue, arg, a_next);
 		scan_nhosts++;

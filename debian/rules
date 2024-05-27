@@ -7,19 +7,17 @@
 
 # This is the debhelper compatability version to use.
 
-CFLAGS = -Wall -g
+CFLAGS = $(shell dpkg-buildflags --get CFLAGS)
 
 ifneq (,$(findstring noopt,$(DEB_BUILD_OPTIONS)))        
 	CFLAGS += -O0
-else        
-	CFLAGS += -O2
 endif
 
 configure: configure-stamp
 configure-stamp:
 	dh_testdir
 	# Add here commands to configure the package.
-	./configure --prefix=/usr --mandir=\$${prefix}/share/man --infodir=\$${prefix}/share/info
+	dh_auto_configure
 
 	touch configure-stamp
 

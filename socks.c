@@ -333,7 +333,7 @@ socks5_readcb(struct bufferevent *bev, void *parameter)
 	return;
 
  error:
-	postres(arg, "<error>");
+	postres(arg, "<socks5 proxy read error>");
  done:
 	scanhost_return(bev, arg, 0);
 }
@@ -371,7 +371,7 @@ socks5_errorcb(struct bufferevent *bev, short what, void *parameter)
 
 	DFPRINTF((stderr, "%s: called\n", __func__));
 
-	postres(arg, "<error>");
+	postres(arg, "<socks5 proxy error>");
 	scanhost_return(bev, arg, 0);
 }
 
@@ -399,16 +399,16 @@ socks4_readcb(struct bufferevent *bev, void *parameter)
 		case SOCKS4_RESP_SUCCESS:
 			break;
 		case SOCKS4_RESP_FAILURE:
-			postres(arg, "<error: server failure>");
+			postres(arg, "<socks4 proxy error: server failure>");
 			goto done;
 		case SOCKS4_RESP_NOIDENT:
-			postres(arg, "<error: no ident>");
+			postres(arg, "<socks4 proxy error: no ident>");
 			goto done;
 		case SOCKS4_RESP_BADIDENT:
-			postres(arg, "<error: bad ident>");
+			postres(arg, "<socks4 proxy error: bad ident>");
 			goto done;
 		default:
-			postres(arg, "<error: response>");
+			postres(arg, "<socks4 proxy error: response>");
 			goto done;
 		}
 
@@ -429,7 +429,7 @@ socks4_readcb(struct bufferevent *bev, void *parameter)
 	return;
 
  error:
-	postres(arg, "<error>");
+	postres(arg, "<socks4 proxy error>");
  done:
 	scanhost_return(bev, arg, 0);
 }
@@ -478,6 +478,6 @@ socks4_errorcb(struct bufferevent *bev, short what, void *parameter)
 
 	DFPRINTF((stderr, "%s: called\n", __func__));
 
-	postres(arg, "<error>");
+	postres(arg, "<socks4 proxy error>");
 	scanhost_return(bev, arg, 0);
 }

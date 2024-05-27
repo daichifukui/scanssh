@@ -54,6 +54,7 @@
 #include <pcap.h>
 #include <unistd.h>
 #include <md5.h>
+#include <stdarg.h>
 #include <assert.h>
 
 #include <event.h>
@@ -63,6 +64,7 @@
 #include "exclude.h"
 #include "xmalloc.h"
 #include "interface.h"
+#include "string-compat.h"
 
 #ifndef howmany
 #define howmany(x,y)	(((x) + ((y) - 1)) / (y))
@@ -115,15 +117,18 @@ struct interface *ss_inter;
 rand_t *ss_rand;
 ip_t   *ss_ip;
 
+/* SOCKS servers via which we can scan */
+struct socksq socks_host;
+
 struct scanner **ss_scanners = NULL;
 int ss_nscanners = 0;
 
-struct argument *args;
-int entries;
+struct argument *args;		/* global list of addresses */
+int entries;			/* number of remaining addresses */
 
-int ssh_sendident;
+int ssh_sendident;		/* should we send ident to ssh server? */
 
-struct port *ss_ports = NULL;
+struct port *ss_ports = NULL;	/* global list of ports to be scanned */
 int ss_nports = 0;
 
 int ss_nhosts = 0;		/* Number of addresses generated */
@@ -133,6 +138,8 @@ int rndexclude = 1;
 struct timeval syn_start;
 int syn_rate = 100;
 int syn_nsent = 0;
+
+int max_scanqueue_size = MAXSCANQUEUESZ;
 
 struct address_slot slots[MAXSLOTS];
 
@@ -321,11 +328,18 @@ printres(struct argument *exp, uint16_t port, char *result)
 }
 
 void
-postres(struct argument *arg, char *result)
+postres(struct argument *arg, const char *fmt, ...)
 {
+	static char buffer[1024];
+	va_list ap;
+
+	va_start(ap, fmt);
+	vsnprintf(buffer, sizeof(buffer), fmt, ap);
+	va_end(ap);
+
 	if (arg->a_res != NULL)
 		free(arg->a_res);
-	if ((arg->a_res = strdup(result)) == NULL)
+	if ((arg->a_res = strdup(buffer)) == NULL)
 		err(1, "%s: strdup", __func__);
 }
 
@@ -934,9 +948,9 @@ probe_haswork(void)
 }
 
 void
-probe_send(int fd, short what, void *arg)
+probe_send(int fd, short what, void *parameter)
 {
-	struct event *ev = arg;
+	struct event *ev = parameter;
 	struct timeval tv;
 	int ntotal, nprobes, nsent;
 	extern int scan_nhosts;
@@ -980,14 +994,56 @@ probe_send(int fd, short what, void *arg)
 
 		entries--;
 		args[entries].a_retry = 0;
-		synlist_insert(&args[entries]);
 
-		/* On failure, synlist_insert already scheduled a retransmit */
-		synlist_probe(&args[entries], args[entries].a_ports[0].port);
+		if (TAILQ_FIRST(&socks_host) == NULL) {
+			synlist_insert(&args[entries]);
+
+			/* 
+			 * On failure, synlist_insert already scheduled
+			 * a retransmit.
+			 */
+			synlist_probe(&args[entries],
+			    args[entries].a_ports[0].port);
+		} else {
+			struct argument *arg = &args[entries];
+			if (!arg->a_hasports)
+				ports_setup(arg, arg->a_ports, arg->a_nports);
+			scanhost_ready(arg);
+		}
 
 		nsent++;
 		syn_nsent++;
 	}
+}
+
+int
+parse_socks_host(char *optarg)
+{
+	char *host;
+	while ((host = strsep(&optarg, ",")) != NULL) {
+		/*
+		 * Parse the address of a SOCKS proxy that we are
+		 * using for all connections.
+		 */
+		struct socks_host *single_host;
+
+		char *address = strsep(&host, ":");
+		if (host == NULL || *host == '\0')
+			return (-1);
+
+		single_host = calloc(1, sizeof(struct socks_host));
+		if (single_host == NULL)
+			err(1, "calloc");
+		if (addr_pton(address, &single_host->host) == -1)
+			return (-1);
+
+		if ((single_host->port = atoi(host)) == 0)
+			return (-1);
+
+		TAILQ_INSERT_TAIL(&socks_host, single_host, next);
+	}
+
+	return (0);
 }
 
 int
@@ -1004,8 +1060,10 @@ main(int argc, char **argv)
 
 	ssh_sendident = 1;
 
+	TAILQ_INIT(&socks_host);
+
 	name = argv[0];
-	while ((ch = getopt(argc, argv, "VIhdps:i:e:n:r:ER")) != -1)
+	while ((ch = getopt(argc, argv, "VIhdpm:u:s:i:e:n:r:ER")) != -1)
 		switch(ch) {
 		case 'V':
 			fprintf(stderr, "ScanSSH %s\n", VERSION);
@@ -1020,7 +1078,20 @@ main(int argc, char **argv)
 			break;
 		case 'p':
 			scanner = "http-proxy,http-connect,socks5,socks4,telnet-proxy,ssh";
-			default_ports = "23,22,80,1080,3128,6588,4480,8080,8081,8000,8100,9050";
+			default_ports = "23,22,80,81,808,1080,1298,3128,6588,4480,8080,8081,8000,8100,9050";
+			break;
+		case 'm':
+			max_scanqueue_size = atoi(optarg);
+			if (max_scanqueue_size == 0) {
+				usage(name);
+				exit(1);
+			}
+			break;
+		case 'u': 
+			if (parse_socks_host(optarg) == -1) {
+				usage(name);
+				exit(1);
+			}
 			break;
 		case 's':
 			scanner = optarg;
@@ -1081,8 +1152,13 @@ main(int argc, char **argv)
 	    "(tcp[13] & 18 = 18 or tcp[13] & 4 = 4)");
 
 	/* Raising file descriptor limits */
+#ifdef __APPLE__
+	rl.rlim_max = 10240;
+	rl.rlim_cur = 10240;
+#else
 	rl.rlim_max = RLIM_INFINITY;
 	rl.rlim_cur = RLIM_INFINITY;
+#endif
 	if (setrlimit(RLIMIT_NOFILE, &rl) == -1) {
 		/* Linux does not seem to like this */
 		if (getrlimit(RLIMIT_NOFILE, &rl) == -1)
@@ -1092,6 +1168,19 @@ main(int argc, char **argv)
 			err(1, "setrlimit: NOFILE");
 	}
 
+	/* Raising the memory limits */
+	rl.rlim_max = RLIM_INFINITY;
+	rl.rlim_cur = MAXSLOTS * EXPANDEDARGS * sizeof(struct argument) * 2;
+	if (setrlimit(RLIMIT_DATA, &rl) == -1) {
+		/* Linux does not seem to like this */
+		if (getrlimit(RLIMIT_DATA, &rl) == -1)
+			err(1, "getrlimit: DATA");
+		rl.rlim_cur = rl.rlim_max;
+		if (setrlimit(RLIMIT_DATA, &rl) == -1)
+			err(1, "setrlimit: DATA");
+	}
+	
+       
 	/* revoke privs */
 #ifdef HAVE_SETEUID
         seteuid(getuid());
