@@ -17,6 +17,7 @@ configure: configure-stamp
 configure-stamp:
 	dh_testdir
 	# Add here commands to configure the package.
+	dh_autoreconf
 	dh_auto_configure
 
 	touch configure-stamp
@@ -40,12 +41,14 @@ clean:
 	-$(MAKE) distclean
 	rm -f config.log
 
+	dh_autoreconf_clean
 	dh_clean
 
 install: build
 	dh_testdir
 	dh_testroot
-	dh_clean -k
+	dh_clean
+	dh_prep
 	dh_installdirs
 
 	# Add here commands to install the package into debian/scanssh.
