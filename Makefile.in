@@ -1,0 +1,80 @@
+# Thanks for Dug Song for configure magic.
+
+SHELL= @SHELL@
+
+srcdir= @srcdir@
+VPATH= @srcdir@
+
+CC= @CC@
+CFLAGS= @CFLAGS@ @DEFS@ -I. -I$(srcdir) -I$(srcdir)/missing @PCAPINC@ -D_BSD_SOURCE
+LDFLAGS= @LDFLAGS@
+LIBS= @LIBS@ @PCAPLIB@
+
+prefix= @prefix@
+exec_prefix= @exec_prefix@
+BINDIR= @bindir@
+MANDIR= @mandir@
+
+DESTDIR= 
+
+INSTALL= @INSTALL@
+INSTALL_PROGRAM= @INSTALL_PROGRAM@
+INSTALL_DATA= @INSTALL_DATA@
+
+# If you have ElectricFence available, you can spot abuses of the heap.
+# (/usr/ports/devel/ElectricFence)
+#LDADD+=                -L/usr/local/lib -lefence
+#DPADD+=                /usr/local/lib/libefence.a
+
+SRCS=	scanssh.c atomicio.c pcapu.c exclude.c connecter.c xmalloc.c
+OBJS=	$(SRCS:.c=.o) @LIBOBJS@
+
+all:	scanssh
+
+scanssh: $(OBJS)
+	$(CC) $(LDFLAGS) -o $@ $(OBJS) $(LIBS)
+
+install: scanssh
+	$(INSTALL_PROGRAM) -m 755 scanssh $(DESTDIR)$(BINDIR)
+	$(INSTALL_DATA) $(srcdir)/scanssh.1 $(DESTDIR)$(MANDIR)/man1
+
+clean:
+	rm -f *.o *~ scanssh
+
+distclean: clean
+	rm -f Makefile config.h config.cache config.log config.status
+
+inet_aton.o: $(srcdir)/missing/inet_aton.c
+	$(CC) $(CFLAGS) -c $(srcdir)/missing/inet_aton.c
+
+inet_pton.o: $(srcdir)/missing/inet_pton.c
+	$(CC) $(CFLAGS) -c $(srcdir)/missing/inet_pton.c
+
+strsep.o: $(srcdir)/missing/strsep.c
+	$(CC) $(CFLAGS) -c $(srcdir)/missing/strsep.c
+
+err.o: $(srcdir)/missing/err.c
+	$(CC) $(CFLAGS) -c $(srcdir)/missing/err.c
+
+md5.o: $(srcdir)/missing/md5.c
+	$(CC) $(CFLAGS) -c $(srcdir)/missing/md5.c
+
+getaddrinfo.o: $(srcdir)/missing/getaddrinfo.c
+	$(CC) $(CFLAGS) -c $(srcdir)/missing/getaddrinfo.c
+
+getnameinfo.o: $(srcdir)/missing/getnameinfo.c
+	$(CC) $(CFLAGS) -c $(srcdir)/missing/getnameinfo.c
+
+strlcpy.o: $(srcdir)/missing/strlcpy.c
+	$(CC) $(CFLAGS) -c $(srcdir)/missing/strlcpy.c
+
+strlcat.o: $(srcdir)/missing/strlcat.c
+	$(CC) $(CFLAGS) -c $(srcdir)/missing/strlcat.c
+
+arc4random.o: $(srcdir)/missing/arc4random.c
+	$(CC) $(CFLAGS) -c $(srcdir)/missing/arc4random.c
+
+.SUFFIXES: .c .o
+
+.c.o:
+	$(CC) $(CFLAGS) -c $<

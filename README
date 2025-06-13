@@ -1,0 +1,32 @@
+SCANSSH V1.2
+------------
+
+Scanssh scans the given addresses and networks for running SSH
+servers.  It will query their version number and displays the results
+in a list.
+
+This program was originally written under OpenBSD as a personal
+measurement tool.  However, besides gathering statistics, it's also
+useful for other purposes such as ensuring that all machines on your
+network run the latest SSH versions, etc...
+
+It is BSD-licensed, please see the source files.
+
+The program requires
+
+	libpcap - http://www.tcpdump.org/
+
+Built and tested on OpenBSD and Linux, but it should also run with
+other UNIX-like operating systems.
+
+On OpenBSD, you can just type make -f Makefile.openbsd, on all other
+systems
+
+	./configure
+	make
+
+should make you happy.
+
+-- 
+Niels Provos <provos@citi.umich.edu>
+http://www.citi.umich.edu/u/provos
