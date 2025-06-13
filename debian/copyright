@@ -1,28 +1,18 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
-Comment:
- This package was debianized by Rene Weber <rene_debmaint@elvenlord.com> on
- Wed, 28 Feb 2001 18:47:28 -0500.
-Source:
- https://github.com/ofalk/scanssh
-Upstream-Contact:
- Niels Provos <provos@citi.umich.edu>
+Upstream-Name: scanssh
+Source: https://github.com/ofalk/scanssh
 
 Files: *
-Copyright:
- Copyright 2000-2004 Niels Provos <provos@citi.umich.edu>
- All rights reserved.
+Copyright: 2000-2004 Niels Provos <provos@citi.umich.edu>
+           2018-2024 Oliver Falk
 License: BSD-3-clause
 
 Files: strlcpy.c strlcat.c
-Copyright:
- Copyright (c) 1998 Todd C. Miller <Todd.Miller@courtesan.com>
- All rights reserved.
+Copyright: 1998 Todd C. Miller <Todd.Miller@courtesan.com>
 License: BSD-3-clause
 
 Files: xmalloc.*
-Copyright:
- Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
-                    All rights reserved
+Copyright: 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
 License: xmalloc
  As far as I am concerned, the code I have written for this software
  can be used freely for any purpose.  Any derived versions of this
@@ -31,24 +21,19 @@ License: xmalloc
  called by a name other than "ssh" or "Secure Shell".
 
 Files: err.c compat/err.h strsep.c
-Copyright:
- Copyright (c) 2000 Dug Song <dugsong@monkey.org>
- Copyright (c) 1991, 1993
-     The Regents of the University of California.  All rights reserved.
+Copyright: 2000 Dug Song <dugsong@monkey.org>
+           1991, 1993 The Regents of the University of California.  All rights reserved.
 License: BSD-3-clause
 Comment: The UC California allows to remove the 3rd clause of BSD-4-clause.
 
 Files: inet_aton.c
-Copyright:
- Copyright (c) 1983, 1990, 1993
-     The Regents of the University of California.  All rights reserved.
- Portions Copyright (c) 1993 by Digital Equipment Corporation.
+Copyright: 1983, 1990, 1993 The Regents of the University of California.  All rights reserved.
+                            Portions Copyright (c) 1993 by Digital Equipment Corporation.
 License: BSD-3-clause and MIT-DEC
 Comment: The UC California allows to remove the 3rd clause of BSD-4-clause.
 
 Files: inet_pton.c
-Copyright:
- Copyright (c) 1996 by Internet Software Consortium.
+Copyright: 1996 by Internet Software Consortium.
 License: ISC
  Permission to use, copy, modify, and distribute this software for any
  purpose with or without fee is hereby granted, provided that the above
@@ -64,9 +49,7 @@ License: ISC
  SOFTWARE.
 
 Files: atomicio.c
-Copyright:
- Copyright (c) 1999 Theo de Raadt
- All rights reserved.
+Copyright: 1999 Theo de Raadt
 License: BSD-2-clause
  Redistribution and use in source and binary forms, with or without
  modification, are permitted provided that the following conditions
@@ -89,9 +72,7 @@ License: BSD-2-clause
  THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 Files: scanssh.1 interface.*
-Copyright:
- Copyright 2000, 2003 Niels Provos <provos@citi.umich.edu>
- All rights reserved.
+Copyright: 2000, 2003 Niels Provos <provos@citi.umich.edu>
 License: BSD-4-clause-Provos
  Redistribution and use in source and binary forms, with or without
  modification, are permitted provided that the following conditions
@@ -117,6 +98,21 @@ License: BSD-4-clause-Provos
  THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+Files: md5.c
+Copyright: not claimed
+License: public-domain
+   This code was modified in 1997 by Jim Kingdon of Cyclic Software to
+   not require an integer type which is exactly 32 bits.  This work
+   draws on the changes for the same purpose by Tatu Ylonen
+   <ylo@cs.hut.fi> as part of SSH, but since I didn't actually use
+   that code, there is no copyright issue.  I hereby disclaim
+   copyright in any changes I have made; this code remains in the
+   public domain.
+
+Files: debian/*
+Copyright: 2001-2005 Rene Weber <rene_debmaint@elvenlord.com>
+License: BSD-3-clause
 
 License: BSD-3-clause
  Redistribution and use in source and binary forms, with or without
