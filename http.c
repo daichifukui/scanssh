@@ -116,6 +116,10 @@ http_getheaders(struct bufferevent *bev, struct argument *arg)
 		evbuffer_drain(input, off);
 	}
 
+	if ((arg->a_flags & HTTP_GOT_HEADERS) &&
+	    !(arg->a_flags & HTTP_GOT_OK))
+		return (-1);
+
 	return (0);
 }
 
@@ -233,7 +237,7 @@ http_errorcb(struct bufferevent *bev, short what, void *parameter)
 
 	DFPRINTF((stderr, "%s: called\n", __func__));
 
-	postres(arg, "<error>");
+	postres(arg, "<http proxy error>");
 	scanhost_return(bev, arg, 0);
 }
 

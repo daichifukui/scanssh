@@ -40,6 +40,7 @@
 .Op Fl VIERph
 .Op Fl s Ar scanners,...
 .Op Fl n Ar ports,...
+.Op Fl u Ar socks hosts,...
 .Op Fl e Ar excludefile
 .Ar addresses...
 .Sh DESCRIPTION
@@ -109,6 +110,10 @@ Specifies the port numbers to scan.
 Ports are separated by commas.
 Each specified scanner is run for each port in this list.
 The default is 22.
+.It Fl u Ar socks hosts,...
+A list of comma separated host:port pairs of SOCKS proxies that
+.Nm
+should use to scan through.
 .It Fl s Ar scanners
 Specifies a number of scanners should be executed for each open port.
 Multiple scanners are separated by commas.

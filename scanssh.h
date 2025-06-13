@@ -28,6 +28,8 @@
 #ifndef _SCANSSH_H_
 #define _SCANSSH_H_
 
+#include <sys/queue.h>
+
 #define SSHMAPVERSION	"SSH-1.0-SSH_Version_Mapper\n"
 #define SSHUSERAGENT	"ScanSSH/2.0"
 #define MAXITER		10
@@ -46,6 +48,14 @@
 
 #define FLAGS_USERANDOM		0x01
 #define FLAGS_SUBTRACTEXCLUDE	0x02
+
+struct socks_host {
+	TAILQ_ENTRY(socks_host) next;
+	struct addr host;
+	uint16_t port;
+};
+
+TAILQ_HEAD(socksq, socks_host);
 
 struct argument;
 
@@ -122,7 +132,7 @@ int ipv4toa(char *, size_t, void *);
 void waitforcommands(int, int);
 
 void argument_free(struct argument *);
-void postres(struct argument *, char *);
+void postres(struct argument *, const char *fmt, ...);
 void printres(struct argument *, uint16_t, char *);
 
 int probe_haswork(void);

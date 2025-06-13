@@ -1,0 +1,29 @@
+# Object files
+*.o
+
+# Libraries
+*.lib
+*.a
+
+# Shared objects (inc. Windows DLLs)
+*.dll
+*.so
+*.so.*
+*.dylib
+
+# Executables
+*.exe
+*.out
+*.app
+
+# Locally generated files
+Makefile
+autom4te.cache/
+*~
+config.log
+config.status
+scanssh
+stamp-h1
+
+# Dist
+scanssh-*.tar.gz

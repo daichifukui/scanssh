@@ -14,10 +14,12 @@
 
 #include <sys/types.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include <err.h>
 #include <string.h>
 
 #include "config.h"
+#include "string-compat.h"
 
 void *
 xmalloc(size_t size)
@@ -27,8 +29,12 @@ xmalloc(size_t size)
 	if (size == 0)
 		err(1,"xmalloc: zero size");
 	ptr = malloc(size);
-	if (ptr == NULL)
-		err(1,"xmalloc: out of memory (allocating %lu bytes)", (u_long) size);
+	if (ptr == NULL) {
+		fprintf(stderr, 
+		    "xmalloc: out of memory (allocating %lu bytes)",
+		    (u_long) size);
+		abort();
+	}
 	return ptr;
 }
 

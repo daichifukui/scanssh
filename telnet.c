@@ -156,7 +156,7 @@ telnet_errorcb(struct bufferevent *bev, short what, void *parameter)
 
 	DFPRINTF((stderr, "%s: called\n", __func__));
 
-	postres(arg, "<error>");
+	postres(arg, "<telnet proxy error>");
 	scanhost_return(bev, arg, 0);
 }
 
