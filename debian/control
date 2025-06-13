@@ -1,7 +1,7 @@
 Source: scanssh
 Section: net
 Maintainer: Fukui Daichi <a.dog.will.talk@akane.waseda.jp>
-Build-Depends: debhelper-compat (= 13), libpcap0.8-dev, libdumbnet-dev, libevent-dev
+Build-Depends: debhelper-compat (= 13), libpcap0.8-dev, libdumbnet-dev, libevent-dev, libmd-dev
 Standards-Version: 4.7.3
 Vcs-Browser: https://salsa.debian.org/debian/scanssh
 Vcs-Git: https://salsa.debian.org/debian/scanssh.git
