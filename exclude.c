@@ -26,6 +26,11 @@
  */
 
 #include <sys/types.h>
+
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include <sys/queue.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -38,7 +43,8 @@
 #include <string.h>
 #include <err.h>
 
-#include "config.h"
+#include <dnet.h>
+
 #include "exclude.h"
 
 char *excludefile = "exclude.list";
@@ -49,7 +55,7 @@ struct exclude_list rndexclqueue;
 #define RNDSBOXSHIFT	7
 #define RNDROUNDS	32
 
-u_int32_t rndsbox[RNDSBOXSIZE];
+uint32_t rndsbox[RNDSBOXSIZE];
 
 char *unusednets[] = {
 	"127.0.0.0/8",		/* local */
@@ -64,7 +70,7 @@ char *unusednets[] = {
 };
 
 void
-rndsboxinit(u_int32_t seed)
+rndsboxinit(uint32_t seed)
 {
 	int i;
 
@@ -81,10 +87,10 @@ rndsboxinit(u_int32_t seed)
  * elements.
  */
 
-u_int32_t
-rndgetaddr(int bits, u_int32_t count)
+uint32_t
+rndgetaddr(int bits, uint32_t count)
 {
-	u_int32_t sum = 0, mask, sboxmask;
+	uint32_t sum = 0, mask, sboxmask;
 	int i, left, right, kshift;
 
 	if (bits == 32)
@@ -113,39 +119,16 @@ rndgetaddr(int bits, u_int32_t count)
 	return (count);
 }
 
-int
-parseaddress(char *line, struct in_addr *address, int *bits)
-{
-	char *part2 = line;
-	char *part1 = strsep(&part2, "/");
-
-	if (inet_pton(AF_INET, part1, address) != 1)
-		return (-1);
-	if (part2 && *part2) {
-		*bits = strtol(part2, &part1, 10);
-		if (*part2 == '\0' || (*part1 && !isspace(*part1)))
-			return (-1);
-		if (*bits < 0 || *bits > 32)
-			return (-1);
-	} else
-		*bits = 32;
-
-	return (0);
-}
-
 void
-excludeinsert(struct in_addr *address, int bits, struct exclude_list *queue)
+excludeinsert(struct addr *addr, struct exclude_list *queue)
 {
 	struct exclude *entry;
-	struct in_addr mask;
 
 	if ((entry = malloc(sizeof(*entry))) == NULL)
 		err(1, "malloc");
 
-	mask.s_addr = 0xFFFFFFFF << (32 - bits);
-	entry->e_type = AF_INET;
-	entry->e_ipv4s.s_addr = ntohl(address->s_addr) & mask.s_addr;
-	entry->e_ipv4e.s_addr = ntohl(address->s_addr) | (~mask.s_addr);
+	/* Set up the addresses; still IPv4 dependent */
+	entry->e_net = *addr;
 	TAILQ_INSERT_HEAD(queue, entry, e_next);
 }
 
@@ -155,19 +138,16 @@ setupexcludes(void)
 	FILE *stream;
 	char line[BUFSIZ];
 	size_t len;
-	struct in_addr address;
-	int bits, i;
+	struct addr addr;
+	int i;
 
 	TAILQ_INIT(&excludequeue);
 	TAILQ_INIT(&rndexclqueue);
 
 	for (i = 0; unusednets[i]; i++) {
-		char *line;
-		if ((line = strdup(unusednets[i])) == NULL)
-			err(1, "malloc");
-		if (parseaddress(line, &address, &bits) == -1)
-			errx(1, "parseaddress for unused");
-		excludeinsert(&address, bits, &rndexclqueue);
+		if (addr_pton(unusednets[i], &addr) == -1)
+			errx(1, "addr_pton for unused %s", unusednets[i]);
+		excludeinsert(&addr, &rndexclqueue);
 	}
 
 	if ((stream = fopen(excludefile, "r")) == NULL)
@@ -180,33 +160,45 @@ setupexcludes(void)
 			continue;
 		}
 		line[len - 1] = '\0';
-		if (parseaddress(line, &address, &bits) == -1) {
+		if (addr_pton(line, &addr) == -1) {
 			fprintf(stderr, "Can't parse <%s> in exclude file.\n",
 				line);
 			exit (1);
 		}
-		excludeinsert(&address, bits, &excludequeue);
+		excludeinsert(&addr, &excludequeue);
 	}
+
+	fclose(stream);
 
 	return (0);
 }
 
-struct in_addr
-exclude(struct in_addr address, struct exclude_list *queue)
+struct addr
+exclude(struct addr address, struct exclude_list *queue)
 {
+	struct addr addr_a, addr_aend;
 	struct exclude *entry;
 
 	/* Check for overflow */
-	if (address.s_addr == INADDR_ANY)
+	if (address.addr_ip == INADDR_ANY)
 		return (address);
 
 	TAILQ_FOREACH(entry, queue, e_next) {
-		if (address.s_addr >= entry->e_ipv4s.s_addr &&
-		    address.s_addr <= entry->e_ipv4e.s_addr) {
+		/* Set up the addresses; still IPv4 dependent */
+		addr_a = entry->e_net;
+		addr_a.addr_bits = IP_ADDR_BITS;
+
+		addr_bcast(&entry->e_net, &addr_aend);
+		addr_aend.addr_bits = IP_ADDR_BITS;
+
+		if (addr_cmp(&address, &addr_a) >= 0 &&
+		    addr_cmp(&address, &addr_aend) <= 0) {
 			/* Increment and check overflow */
-			address.s_addr = entry->e_ipv4e.s_addr + 1;
+			ip_addr_t ip = ntohl(addr_aend.addr_ip) + 1;
+			address.addr_ip = htonl(ip);
 			return (exclude(address, queue));
 		}
 	}
+
 	return (address);
 }

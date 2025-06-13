@@ -1,7 +1,7 @@
 /*
  * ScanSSH - simple SSH version scanner
  *
- * Copyright 2000-2001 Niels Provos <provos@citi.umich.edu>
+ * Copyright 2000-2004 (c) Niels Provos <provos@citi.umich.edu>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -28,11 +28,18 @@
  */
 
 #include <sys/types.h>
+
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include <sys/socket.h>
 #include <sys/wait.h>
 #include <sys/time.h>
 #include <sys/resource.h>
 #include <sys/queue.h>
+#include <sys/tree.h>
+
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
@@ -47,37 +54,34 @@
 #include <pcap.h>
 #include <unistd.h>
 #include <md5.h>
+#include <assert.h>
 
-#define VERSION	"V1.6b"
-
-#include "config.h"
-#ifdef HAVE_FDMASK_IN_SELECT
-#include <sys/select.h>
-#endif
+#include <event.h>
+#include <dnet.h>
 
 #include "scanssh.h"
 #include "exclude.h"
-#include "pcapu.h"
 #include "xmalloc.h"
+#include "interface.h"
 
 #ifndef howmany
 #define howmany(x,y)	(((x) + ((y) - 1)) / (y))
 #endif
 
+#ifdef DEBUG
+int debug = 0;
+#define DFPRINTF(x)	if (debug) fprintf x
+#define DNFPRINTF(y, x)	if (debug >= y) fprintf x
+#else
+#define DFPRINTF(x)
+#define DNFPRINTF(y, x)
+#endif
+
 struct address_node {
 	TAILQ_ENTRY (address_node) an_next;
 
-	sa_family_t an_type;
-	union {
-		struct in_addr ipv4;
-	} an_ipstart;
-#define an_ipv4start an_ipstart.ipv4
-
-	union {
-		struct in_addr ipv4;
-	} an_ipend;
-#define an_ipv4end an_ipend.ipv4
-
+	struct addr an_start;
+	struct addr an_end;
 	int an_bits;
 };
 
@@ -88,27 +92,47 @@ struct generate {
 
 	int gen_flags;
 
-	u_int32_t gen_seed;		/* Seed for PRNG */
+	uint32_t gen_seed;		/* Seed for PRNG */
 
-	u_int32_t gen_bits;
-	u_int32_t gen_start;
-	u_int32_t gen_iterate;
-	u_int32_t gen_end;
-	u_int32_t gen_current;
-	u_int32_t gen_n;		/* successful generations */
-	u_int32_t gen_max;
+	uint32_t gen_bits;
+	uint32_t gen_start;
+	uint32_t gen_iterate;
+	uint32_t gen_end;
+	uint32_t gen_current;
+	uint32_t gen_n;		/* successful generations */
+	uint32_t gen_max;
+
+
+	struct port *gen_ports;
+	int gen_nports;
 };
 
 int populate(struct argument **, int *);
-int next_address(struct generate *, struct in_addr *);
+int next_address(struct generate *, struct addr *);
 
 /* Globals */
-int usepcap;
+struct interface *ss_inter;
+rand_t *ss_rand;
+ip_t   *ss_ip;
+
+struct scanner **ss_scanners = NULL;
+int ss_nscanners = 0;
+
+struct argument *args;
+int entries;
+
 int ssh_sendident;
-char *ssh_ipalias = NULL;
-int port = SCAN_PORT;
+
+struct port *ss_ports = NULL;
+int ss_nports = 0;
+
+int ss_nhosts = 0;		/* Number of addresses generated */
+
 pcap_t *pd;
 int rndexclude = 1;
+struct timeval syn_start;
+int syn_rate = 100;
+int syn_nsent = 0;
 
 struct address_slot slots[MAXSLOTS];
 
@@ -118,10 +142,20 @@ int commands[MAX_PROCESSES];
 int results[MAX_PROCESSES];
 
 TAILQ_HEAD (gen_list, generate) genqueue;
-TAILQ_HEAD (queue_list, argument) readyqueue;
-TAILQ_HEAD (syn_list, argument) synqueue;
+struct queue_list readyqueue;
 
-#define synlist_hasspace()	(synqueuesz < MAXSYNQUEUESZ)
+/* Structure for probes */
+static SPLAY_HEAD(syntree, argument) synqueue;
+
+int
+argumentcompare(struct argument *a, struct argument *b)
+{
+	return (addr_cmp(&a->addr, &b->addr));
+}
+
+SPLAY_PROTOTYPE(syntree, argument, a_node, argumentcompare);
+SPLAY_GENERATE(syntree, argument, a_node, argumentcompare);
+
 #define synlist_empty()		(synqueuesz == 0)
 
 int synqueuesz;
@@ -151,6 +185,8 @@ slot_get(void)
 	return (slot);
 }
 
+/* We need to call this to free up our memory */
+
 void
 slot_free(struct address_slot *slot)
 {
@@ -160,41 +196,57 @@ slot_free(struct address_slot *slot)
 
 	slot->slot_size = 0;
 	free(slot->slot_base);
-	slot->slot_base = 0;
+	slot->slot_base = NULL;
+}
+
+void
+argument_free(struct argument *arg)
+{
+	if (arg->a_ports != NULL && arg->a_hasports) {
+		int i;
+
+		for (i = 0; i < arg->a_nports; i++) {
+			struct port_scan *ps = arg->a_ports[i].scan;
+			if (ps != NULL) {
+				event_del(&ps->ev);
+				free(ps);
+			}
+		}
+		free(arg->a_ports);
+		arg->a_ports = NULL;
+	}
+
+	if (arg->a_res != NULL) {
+		free(arg->a_res);
+		arg->a_res = NULL;
+	}
+
+	slot_free(arg->a_slot);
 }
 
 void
 synlist_init(void)
 {
-	TAILQ_INIT(&synqueue);
+	SPLAY_INIT(&synqueue);
 	synqueuesz = 0;
 }
+
+/* Inserts an address into the syn tree and schedules a retransmit */
 
 int
 synlist_insert(struct argument *arg)
 {
-	struct timeval tmp;
-	struct argument *listarg;
+	struct timeval tv;
 
-	if (!synlist_hasspace())
-		return (-1);
+	timerclear(&tv);
+	tv.tv_sec = (arg->a_retry/2 + 1) * SYNWAIT;
+	tv.tv_usec = rand_uint32(ss_rand) % 1000000L;
 
-	timerclear(&tmp);
-	tmp.tv_sec += (arg->a_retry/2 + 1) * SYNWAIT;
-	tmp.tv_usec = arc4random();
+	evtimer_add(&arg->ev, &tv);
 
-	gettimeofday(&arg->a_tv, NULL);
-	timeradd(&tmp, &arg->a_tv, &arg->a_tv);
-
-	/* Insert in time order */
-	TAILQ_FOREACH_REVERSE(listarg, &synqueue, a_next, syn_list) {
-		if (timercmp(&listarg->a_tv, &arg->a_tv, <=))
-			break;
-	}
-	if (listarg)
-		TAILQ_INSERT_AFTER(&synqueue, listarg, arg, a_next);
-	else
-		TAILQ_INSERT_TAIL(&synqueue, arg, a_next);
+	/* Insert the node into our tree */
+	assert(SPLAY_FIND(syntree, &synqueue, arg) == NULL);
+	SPLAY_INSERT(syntree, &synqueue, arg);
 
 	synqueuesz++;
 
@@ -204,49 +256,50 @@ synlist_insert(struct argument *arg)
 void
 synlist_remove(struct argument *arg)
 {
-	TAILQ_REMOVE(&synqueue, arg, a_next);
+	SPLAY_REMOVE(syntree, &synqueue, arg);
+	evtimer_del(&arg->ev);
 	synqueuesz--;
 }
 
-struct argument *
-synlist_dequeue(void)
+int
+synlist_probe(struct argument *arg, uint16_t port)
 {
-	struct argument *arg;
-
-	arg = TAILQ_FIRST(&synqueue);
-	if (arg == NULL)
-		return (NULL);
-
-	synlist_remove(arg);
-	return (arg);
+        return (synprobe_send(&ss_inter->if_ent.intf_addr,
+		    &arg->addr, port, &arg->a_seqnr));
 }
 
 int
-synlist_expired(void)
+synprobe_send(struct addr *src, struct addr *dst,
+    uint16_t port, uint32_t *seqnr)
 {
-	struct argument *arg;
-	struct timeval tv;
+	static uint8_t pkt[1500];
+	struct tcp_hdr *tcp;
+	uint iplen;
+	int res;
 
-	arg = TAILQ_FIRST(&synqueue);
-	if (arg == NULL)
-		return (0);
+	DFPRINTF((stderr, "Sending probe to %s:%d\n", addr_ntoa(dst), port));
 
-	gettimeofday(&tv, NULL);
+	tcp = (struct tcp_hdr *)(pkt + IP_HDR_LEN);
+	tcp_pack_hdr(tcp, rand_uint16(ss_rand), port, 
+	    *seqnr, 0, 
+	    TH_SYN, 0x8000, 0);
 
-	return (timercmp(&tv, &arg->a_tv, >));
-}
+	iplen = IP_HDR_LEN + (tcp->th_off << 2);
 
-int
-synlist_probe(struct argument *arg)
-{
-	int res = 0; 
+	/* Src and Dst are reversed both for ip and tcp */
+	ip_pack_hdr(pkt, 0, iplen,
+	    rand_uint16(ss_rand),
+	    IP_DF, 64,
+	    IP_PROTO_TCP, src->addr_ip, dst->addr_ip);
 
-        if (arg->a_type != AF_INET ||
-	    (res = synprobe_send(arg->a_ipv4, &arg->a_seqnr)) == -1 ||
-	    synlist_insert(arg) == -1)
-		TAILQ_INSERT_TAIL(&readyqueue, arg, a_next);
-	    
-	return (res);
+	ip_checksum(pkt, iplen);
+	
+	if ((res = ip_send(ss_ip, pkt, iplen)) != iplen) {
+		warn("%s: ip_send(%d): %s", __func__, res, addr_ntoa(dst));
+		return (-1);
+	}
+
+	return (0);
 }
 
 void
@@ -260,327 +313,146 @@ sigchld_handler(int sig)
 }
 
 void
-printres(struct argument *exp, char *result)
+printres(struct argument *exp, uint16_t port, char *result)
 {
-	char ntop[NI_MAXHOST];
-	ipv4toa(ntop, sizeof(ntop), &exp->a_ipv4);
-	fprintf(stdout, "%s %s\n", ntop, result);
+	fprintf(stdout, "%s:%d %s\n",
+	    addr_ntoa(&exp->addr), port, result);
 	fflush(stdout);
 }
 
 void
-scanips(void)
+postres(struct argument *arg, char *result)
 {
-	u_int32_t entries = 0;
-	fd_set *readset, *writeset;
-	int maxfd = 0, fdsetsz, counts = 0;
+	if (arg->a_res != NULL)
+		free(arg->a_res);
+	if ((arg->a_res = strdup(result)) == NULL)
+		err(1, "%s: strdup", __func__);
+}
+
+/*
+ * Called when a syn probe times out and we might have to repeat it
+ */
+
+void
+ss_timeout(int fd, short what, void *parameter)
+{
+	struct argument *arg = parameter;
 	struct timeval tv;
-	int res, i, lastinsert, newinsert;
-	struct argument *args;
-	char buf[MAXBUF], *p;
 
-	for (i = 0; i < MAX_PROCESSES; i++) {
-		if (commands[i] > maxfd)
-			maxfd = commands[i];
-		if (results[i] > maxfd)
-			maxfd = results[i];
+	if (arg->a_retry < SYNRETRIES) {
+		arg->a_retry++;
+		/*
+		 * If this probe fails we are not reducing the retry counter,
+		 * as some of the failures might repeat always, like a host
+		 * on the local network not being reachable or some unrouteable
+		 * address space.
+		 */
+		if (synlist_probe(arg, arg->a_ports[0].port) == 0)
+			syn_nsent++;
+	} else {
+		printres(arg, arg->a_ports[0].port, "<timeout>");
+		synlist_remove(arg);
+		argument_free(arg);
+		return;
 	}
-	fdsetsz = howmany(maxfd + 1, NFDBITS) * sizeof(fd_mask);
-	if ((readset = malloc(fdsetsz)) == NULL)
-		err(1, "malloc for readset");
-	if ((writeset = malloc(fdsetsz)) == NULL)
-		err(1, "malloc for readset");
 
-	TAILQ_INIT(&readyqueue);
-	synlist_init();
+	timerclear(&tv);
+	tv.tv_sec = (arg->a_retry/2 + 1) * SYNWAIT;
+	tv.tv_usec = rand_uint32(ss_rand) % 1000000L;
+	
+	evtimer_add(&arg->ev, &tv);
+}
 
-	/* Keep track where which process received the last insert */
-	lastinsert = 0;
+void
+ss_recv_cb(uint8_t *ag, const struct pcap_pkthdr *pkthdr, const uint8_t *pkt)
+{
+	struct interface *inter = (struct interface *)ag;
+	struct ip_hdr *ip;
+	struct tcp_hdr *tcp = NULL;
+	struct addr addr;
+	struct argument *arg, tmp;
+	ushort iplen, iphlen;
 
-	while (TAILQ_FIRST(&genqueue) || entries ||
-	       counts || !synlist_empty()) {
-		/* Create new entries, if we need them */
-		if (!entries && TAILQ_FIRST(&genqueue)) {
-			 if (populate(&args, &entries) == -1)
-				 entries = 0;
-		}
+	/* Everything below assumes that the packet is IPv4 */
+	if (pkthdr->caplen < inter->if_dloff + IP_HDR_LEN)
+		return;
 
-		memset(readset, 0, fdsetsz);
-		memset(writeset, 0, fdsetsz);
-		
-		for (i = 0; i < MAX_PROCESSES; i++) {
-			if (commands[i] >= 0)
-				FD_SET(commands[i], writeset);
-			if (results[i] >= 0)
-				FD_SET(results[i], readset);
-		}
+	pkt += inter->if_dloff;
+	ip = (struct ip_hdr *)pkt;
 
-		/* Find new timeout */
-		timerclear(&tv);
-		tv.tv_usec = 250000;
-		if (!synlist_empty()) {
-			struct timeval ctv, tmp;
-			struct argument *sarg = TAILQ_FIRST(&synqueue);
+	iplen = ntohs(ip->ip_len);
+	if (pkthdr->caplen - inter->if_dloff < iplen)
+		return;
 
-			gettimeofday(&ctv, NULL);
-			tmp = sarg->a_tv;
-			/* If it overflows, it will become bigger */
-			timersub(&tmp, &ctv, &tmp);
-			if (timercmp(&tmp, &tv, <))
-				tv = tmp;
-			timerclear(&tmp);
-			if (timercmp(&tmp, &tv, >))
-				tv = tmp;
-		}
+	iphlen = ip->ip_hl << 2;
+	if (iphlen > iplen)
+		return;
+	if (iphlen < sizeof(struct ip_hdr))
+		return;
 
-		/* Wait in select until there is a connection. */
-		if ((res = select(maxfd + 1, readset, writeset, NULL,
-				  &tv)) == -1) {
-			if (errno != EINTR)
-				err(1, "select");
-			continue;
-		}
+	addr_pack(&addr, ADDR_TYPE_IP, IP_ADDR_BITS, &ip->ip_src, IP_ADDR_LEN);
 
-		/* Read back commands */
-		for (i = 0; i < MAX_PROCESSES; i++) {
-			int count;
-			if (results[i] < 0 || !FD_ISSET(results[i], readset))
-				continue;
+	if (iplen < iphlen + TCP_HDR_LEN)
+		return;
 
-			res = -1;
-			count = 0;
-			while (res != 0 && count < sizeof(buf)) {
-				res = read(results[i], buf + count,
-					   sizeof(buf) - count);
-				if (res == -1 &&
-				    (errno != EINTR && errno != EAGAIN))
-					break;
-				if (res > 0) {
-					count += res;
-					if (buf[count - 1] == '\0')
-						break;
-				}
+	tcp = (struct tcp_hdr *)(pkt + iphlen);
+
+	/* See if we get results from our syn probe */
+	tmp.addr = addr;
+	if ((arg = SPLAY_FIND(syntree, &synqueue, &tmp)) != NULL) {
+		struct port *port;
+		/* Check if the result is coming from the right port */
+		port = ports_find(arg, ntohs(tcp->th_sport));
+		if (port == NULL)
+			return;
+
+		if (!arg->a_hasports)
+			ports_setup(arg, arg->a_ports, arg->a_nports);
+
+		if (tcp->th_flags & TH_RST) {
+			printres(arg, port->port, "<refused>");
+			ports_remove(arg, port->port);
+			if (arg->a_nports == 0) {
+				synlist_remove(arg);
+				argument_free(arg);
+				return;
 			}
-			if (res == 0) {
-				/* Child terminated */
-				close (results[i]);
-				results[i] = -1;
-				if (commands[i] != -1) {
-					close(commands[i]);
-					commands[i] = -1;
-				}
-			} else if(res == -1)
-				err(1, "read");
-			p = buf;
-			while (count > 0) {
-				fprintf(stdout, "%s\n", p);
-				fflush(stdout);
-				count -= strlen(p) + 1;
-				p += strlen(p) + 1;
-				counts--;
-			}
-		}
-
-		if (usepcap) {
-			int res, nsent, probefailed;
-			struct in_addr address;
-			struct argument *addrchk;
-			struct timeval now;
-
-			/* See if we get results from our syn probe */
-			while (!synlist_empty() &&
-			       (res = pcap_get_address(pd, &address)) != -1) {
-				TAILQ_FOREACH(addrchk, &synqueue, a_next) {
-					if (address.s_addr == addrchk->a_ipv4.s_addr)
-						break;
-				}
-				if (addrchk) {
-					synlist_remove(addrchk);
-					if (res == 0)
-						printres(addrchk, "<refused>");
-					else
-						TAILQ_INSERT_TAIL(&readyqueue,
-								  addrchk,
-								  a_next);
-				}
-			}
-
-			gettimeofday(&now, NULL);
-			nsent = 0;
-			probefailed = 0;
-			/* Remove all expired entries */
-			while (synlist_expired() && nsent < MAXBURST) {
-				struct argument *exp;
-				
-				exp = synlist_dequeue();
-				if (exp->a_retry < SYNRETRIES) {
-					exp->a_retry++;
-					if (synlist_probe(exp) == -1) {
-						probefailed = 1;
-						break;
-					}
-					nsent++;
-				} else {
-					printres(exp, "<timeout>");
-					slot_free(exp->a_slot);
-				}
-			}
-
-			/* Put new entries in the synlist */
-			while (!probefailed && entries && nsent < MAXBURST &&
-			       synlist_hasspace()) {
-				entries--;
-				args[entries].a_retry = 0;
-				if (synlist_probe(&args[entries])== -1) {
-					probefailed = 1;
-					break;
-				}
-				nsent++;
-			}
-#ifdef DEBUG
-			fprintf(stderr, "Sent: %d %s (%d-%d:%d)\n", nsent,
-				probefailed ? "failed" : "",
-				synqueuesz, entries, counts);
-#endif /* DEBUG */
 		} else {
-			/* No advanced syn probing, place data direcly
-			 * on ready queue.
-			 */
-			for (i = 0; i < MAX_PROCESSES && entries; i++) {
-				entries--;
-				TAILQ_INSERT_TAIL(&readyqueue, &args[entries],
-						  a_next);
-			}
+			ports_markchecked(arg, port);
 		}
 
-		/* Round robin the inserts */
-		i = (lastinsert + 1) % MAX_PROCESSES;
-		newinsert = lastinsert;
-		while (i != lastinsert) {
-			i = (i + 1) % MAX_PROCESSES;
-
-			if (commands[i] < 0 ||
-			    !FD_ISSET(commands[i], writeset))
-				continue;
-			if (TAILQ_FIRST(&readyqueue)) {
-				struct argument *arg;
-				arg = TAILQ_FIRST(&readyqueue);
-				TAILQ_REMOVE(&readyqueue, arg, a_next);
-				atomicio(write, commands[i], arg,
-					 sizeof(struct argument));
-				slot_free(arg->a_slot);
-				counts++;
-				newinsert = i;
-			} else if (synlist_empty()) {
-				struct argument arg;
-				memset(&arg, 0, sizeof(arg));
-				atomicio(write, commands[i], &arg,
-					 sizeof(arg));
-				close (commands[i]);
-				commands[i] = -1;
-			}
+		if (ports_isalive(arg) == 1) {
+			synlist_remove(arg);
+			scanhost_ready(arg);
 		}
-		lastinsert = newinsert;
 	}
 }
 
 void
-setupchildren(void)
+scanssh_init(void)
 {
-	struct rlimit rlimit;
-	int cpipefds[2], rpipefds[2];
-	int i, j;
-	pid_t pid;
-
-        /* Increase number of open files */
-        if (getrlimit(RLIMIT_NOFILE, &rlimit) == -1)
-                err(1, "router_socket: getrlimit");
-        rlimit.rlim_cur = rlimit.rlim_max;
-        if (setrlimit(RLIMIT_NOFILE, &rlimit) == -1)
-                err(1, "router_socket: setrlimit");
-
-	/* Arrange SIGCHLD to be caught. */
-	signal(SIGCHLD, sigchld_handler);
-
-	for (i = 0; i < MAX_PROCESSES; i++) {
-		if (pipe(cpipefds) == -1)
-			err(1, "pipe for commands fds failed");
-		if (pipe(rpipefds) == -1)
-			err(1, "pipe for results fds failed");
-		fcntl(cpipefds[1], F_SETFL, O_NONBLOCK);
-		fcntl(rpipefds[0], F_SETFL, O_NONBLOCK);
-		if ((pid = fork()) == 0) {
-			/* Child */
-			close(cpipefds[1]);
-			close(rpipefds[0]);
-			/* Close pipes to other children */
-			for (j = 0; j < i; j++) {
-				close(commands[j]);
-				close(results[j]);
-			}
-			waitforcommands(cpipefds[0], rpipefds[1]);
-			exit (0);
-		} else if(pid == -1)
-			err(1, "fork failed");
-		
-		/* Parent */
-		close(cpipefds[0]);
-		close(rpipefds[1]);
-
-		commands[i] = cpipefds[1];
-		results[i] = rpipefds[0];
-	}
-
+	TAILQ_INIT(&readyqueue);
+	synlist_init();
 }
 
 void
 usage(char *name)
 {
 	fprintf(stderr, 
-		"%s: [-VIERh] [-n port] [-e excludefile] [-b alias] [-p ifaddr] <IP address|network>...\n\n"
-		"\t-V          print version number of scanssh,\n"
-		"\t-I          do not send identification string,\n"
-		"\t-E          exit if exclude file is missing,\n"
-		"\t-R          do not honor exclude file for random addresses,\n"
-		"\t-n <port>   the port number to scan.  Either 22 or 80.\n"
-		"\t-e <file>   exclude the IP addresses and networks in <file>,\n"
-		"\t-b <alias>  specifies the IP alias to connect from,\n"
-		"\t-p <ifaddr> specifies the local interface address,\n"
-		"\t-h          this message.\n\n",
-		name);
-}
-
-#ifndef HAVE_SOCKADDR_STORAGE
-struct sockaddr_storage {
-	u_char iamasuckyoperatingsystem[2048];
-};
-#endif
-
-int
-ipv4toa(char *buf, size_t size, void *addr)
-{
-	struct sockaddr_storage from;
-	struct sockaddr_in *sfrom = (struct sockaddr_in *)&from;
-	socklen_t fromlen = sizeof(from);
-
-	memset(&from, 0, fromlen);
-#ifdef HAVE_SIN_LEN
-	sfrom->sin_len = sizeof (struct sockaddr_in);
-#endif
-	sfrom->sin_family = AF_INET;
-	memcpy(&sfrom->sin_addr.s_addr, addr, 4);
-
-	if (getnameinfo ((struct sockaddr *)sfrom,
-#ifdef HAVE_SIN_LEN
-			 sfrom->sin_len,
-#else
-			 sizeof (struct sockaddr_in),
-#endif
-			 buf, size, NULL, 0, NI_NUMERICHOST) != 0) {
-		fprintf(stderr, "ipsec_ipv4toa: getnameinfo() failed");
-		return -1;
-	}
-	return 0;
+	    "%s: [-VIERhp] [-s scanners] [-n ports] [-e excludefile] [-i if] [-b alias] <IP address|network>...\n\n"
+	    "\t-V          print version number of scanssh,\n"
+	    "\t-I          do not send identification string,\n"
+	    "\t-E          exit if exclude file is missing,\n"
+	    "\t-R          do not honor exclude file for random addresses,\n"
+	    "\t-p	       proxy detection mode; set scanners and ports,\n"
+	    "\t-n <port>   the port number to scan.\n"
+	    "\t-e <file>   exclude the IP addresses and networks in <file>,\n"
+	    "\t-b <alias>  specifies the IP alias to connect from,\n"
+	    "\t-i <if>     specifies the local interface,\n"
+	    "\t-h          this message.\n"
+	    "\t-s <modes>  uses the following modules for scanning:\n",
+	    name);
+	scanner_print("\t\t");
 }
 
 void
@@ -592,8 +464,7 @@ generate_free(struct generate *gen)
 	for (node = TAILQ_FIRST(&gen->gen_anqueue);
 	     node;
 	     node = TAILQ_FIRST(&gen->gen_anqueue)) {
-		TAILQ_REMOVE(&gen->gen_anqueue,
-			     node, an_next);
+		TAILQ_REMOVE(&gen->gen_anqueue, node, an_next);
 		xfree(node);
 	}
 
@@ -603,19 +474,19 @@ generate_free(struct generate *gen)
 
 /*
  * Given an IP prefix and mask create all addresses contained
- * exlcuding any addresses specified in the exlcude queues.
+ * excluding any addresses specified in the exclude queues.
  */
 
 int
 populate(struct argument **pargs, int *nargs)
 {
 	struct generate *gen;
-	struct in_addr addr;
+	struct addr addr;
 	struct address_slot *slot = NULL;
 	struct argument *args;
 	int count;
 
-	u_int32_t i = 0;
+	uint32_t i = 0;
 
 	if (!TAILQ_FIRST(&genqueue))
 		return (-1);
@@ -627,7 +498,13 @@ populate(struct argument **pargs, int *nargs)
 	count = slot->slot_size;
 
 	while (TAILQ_FIRST(&genqueue) && count) {
+		struct port *ports;
+		int nports;
+
 		gen = TAILQ_FIRST(&genqueue);
+		ports = gen->gen_ports;
+		nports = gen->gen_nports;
+
 		
 		/* Initalize generator */
 		if (!gen->gen_current) {
@@ -643,11 +520,34 @@ populate(struct argument **pargs, int *nargs)
 				break;
 			}
 
-			args[i].a_type = AF_INET;
-			args[i].a_ipv4.s_addr = htonl(addr.s_addr);
+			DFPRINTF((stderr, "New address: %s\n",
+				     addr_ntoa(&addr)));
+
+			/* Set up a new address for scanning */
+			memset(&args[i], 0, sizeof(struct argument));
+			args[i].addr = addr;
 			args[i].a_slot = slot;
+			args[i].a_scanner = ss_scanners[0];
+			args[i].a_scanneroff = 0;
+			args[i].a_seqnr = rand_uint32(ss_rand);
+
+			/*
+			 * If we have a local port range from the generator
+			 * use that.  Otherwise, use the ports that have
+			 * been supplied globally.
+			 */
+			if (ports != NULL) {
+				args[i].a_ports = ports;
+				args[i].a_nports = nports;
+			} else {
+				args[i].a_ports = ss_ports;
+				args[i].a_nports = ss_nports;
+			}
+
+			evtimer_set(&args[i].ev, ss_timeout, &args[i]);
 
 			slot->slot_ref++;
+			ss_nhosts++;
 
 			count--;
 			i++;
@@ -661,20 +561,24 @@ populate(struct argument **pargs, int *nargs)
 }
 
 int
-address_from_offset(struct address_node *an, u_int32_t offset,
-		    struct in_addr *addr)
+address_from_offset(struct address_node *an, uint32_t offset,
+    struct addr *addr)
 {
+	ip_addr_t start, end;
 	for (; an; an = TAILQ_NEXT(an, an_next)) {
-		if (an->an_ipv4start.s_addr + offset <= an->an_ipv4end.s_addr)
+		*addr = an->an_start;
+		start = ntohl(an->an_start.addr_ip);
+		end = ntohl(an->an_end.addr_ip);
+		if (start + offset <= end)
 			break;
-		offset -= an->an_ipv4end.s_addr - an->an_ipv4start.s_addr + 1;
+		offset -= end - start + 1;
 	}
 
 	if (an == NULL)
 		return (-1);
 
-	addr->s_addr = an->an_ipv4start.s_addr + offset;
-	
+	addr->addr_ip = htonl(start + offset);
+
 	return (0);
 }
 
@@ -683,10 +587,10 @@ address_from_offset(struct address_node *an, u_int32_t offset,
  */
 
 int
-next_address(struct generate *gen, struct in_addr *addr)
+next_address(struct generate *gen, struct addr *addr)
 {
-	struct in_addr ipv4addr, tmp;
-	u_int32_t offset;
+	struct addr ipv4addr, tmp;
+	uint32_t offset;
 	int done = 0, random;
 
 	/* Check if generator has been exhausted */
@@ -699,19 +603,19 @@ next_address(struct generate *gen, struct in_addr *addr)
 		/* Get offset into address range */
 		if (random)
 			offset = rndgetaddr(gen->gen_bits,
-					    gen->gen_current);
+			    gen->gen_current);
 		else
 			offset = gen->gen_current;
 		
 		gen->gen_current += gen->gen_iterate;
 		
 		if (address_from_offset(TAILQ_FIRST(&gen->gen_anqueue),
-					offset, &ipv4addr) == -1)
+			offset, &ipv4addr) == -1)
 			continue;
 		
 		if (!random || rndexclude) {
 			tmp = exclude(ipv4addr, &excludequeue);
-			if (ipv4addr.s_addr != tmp.s_addr) {
+			if (addr_cmp(&ipv4addr, &tmp)) {
 				if (random) {
 					if (gen->gen_flags & FLAGS_SUBTRACTEXCLUDE)
 						gen->gen_max--;
@@ -721,7 +625,7 @@ next_address(struct generate *gen, struct in_addr *addr)
 
 				/* In linear mode, we can skip these */
 				offset = gen->gen_current;
-				offset += tmp.s_addr - ipv4addr.s_addr;
+				offset += ntohl(tmp.addr_ip) - ntohl(ipv4addr.addr_ip);
 				if (offset < gen->gen_current) {
 					gen->gen_current = gen->gen_end;
 					break;
@@ -751,7 +655,7 @@ next_address(struct generate *gen, struct in_addr *addr)
 		
 		if (random) {
 			tmp = exclude(ipv4addr, &rndexclqueue);
-			if (ipv4addr.s_addr != tmp.s_addr) {
+			if (addr_cmp(&ipv4addr, &tmp)) {
 				if (gen->gen_flags & FLAGS_SUBTRACTEXCLUDE)
 					gen->gen_max--;
 				continue;
@@ -761,7 +665,7 @@ next_address(struct generate *gen, struct in_addr *addr)
 		/* We have an address */
 		done = 1;
 	} while ((gen->gen_current < gen->gen_end) && 
-		 (gen->gen_n < gen->gen_max) && !done);
+	    (gen->gen_n < gen->gen_max) && !done);
 
 	if (!done)
 		return (-1);
@@ -777,31 +681,29 @@ struct address_node *
 address_node_get(char *line)
 {
 	struct address_node *an;
-	struct in_addr ipv4mask;
-	int bits;
 
 	/* Allocate an address node */
 	an = xmalloc(sizeof(struct address_node));
 	memset(an, 0, sizeof(struct address_node));
-	if (parseaddress(line, &an->an_ipv4start, &bits) == -1) {
+	if (addr_pton(line, &an->an_start) == -1) {
 		fprintf(stderr, "Can not parse %s\n", line);
-		return (NULL);
+		goto error;
 	}
+	/* Working around libdnet bug */
+	if (strcmp(line, "0.0.0.0/0") == 0)
+		an->an_start.addr_bits = 0;
 
-	an->an_bits = bits;
-	an->an_type = AF_INET;
+	an->an_bits = an->an_start.addr_bits;
 
-	/* Calculate start and end address for this node */
-	if (bits > 0)
-		ipv4mask.s_addr = 0xFFFFFFFF << (32 - bits);
-	else
-		ipv4mask.s_addr = 0;
-
-	an->an_ipv4start.s_addr = ntohl(an->an_ipv4start.s_addr);
-	an->an_ipv4start.s_addr &= ipv4mask.s_addr;
-	an->an_ipv4end.s_addr = an->an_ipv4start.s_addr | (~ipv4mask.s_addr);
+	addr_bcast(&an->an_start, &an->an_end);
+	an->an_start.addr_bits = IP_ADDR_BITS;
+	an->an_end.addr_bits = IP_ADDR_BITS;
 
 	return (an);
+
+ error:
+	free(an);
+	return (NULL);
 }
 
 /*
@@ -870,8 +772,8 @@ generate_random(struct generate *gen, char **pline)
 	/* Generate seed from string */
 	if (strlen(seed)) {
 		MD5_CTX ctx;
-		u_char digest[16];
-		u_int32_t *tmp = (u_int32_t *)digest;
+		uint8_t digest[16];
+		uint32_t *tmp = (uint32_t *)digest;
 
 		MD5Init(&ctx);
 		MD5Update(&ctx, seed, strlen(seed));
@@ -882,7 +784,7 @@ generate_random(struct generate *gen, char **pline)
 			gen->gen_seed ^= *tmp++;
 				
 	} else
-		gen->gen_seed = arc4random();
+		gen->gen_seed = rand_uint32(ss_rand);
 
 	gen->gen_flags |= FLAGS_USERANDOM;
 
@@ -901,7 +803,7 @@ generate(char *line)
 {
 	struct generate *gen;
 	struct address_node *an;
-	u_int32_t count, tmp;
+	uint32_t count, tmp;
 	char *p;
 	int bits, i, done;
 
@@ -911,6 +813,17 @@ generate(char *line)
 
 	/* Insert in generator queue, on failure generate_free removes it */
 	TAILQ_INSERT_TAIL(&genqueue, gen, gen_next);
+
+	/* Check for port ranges */
+	p = strsep(&line, ":");
+	if (line != NULL) {
+		if (ports_parse(line,
+			&gen->gen_ports, &gen->gen_nports) == -1) {
+			fprintf(stderr, "Bad port range: %s\n", line);
+			goto fail;
+		}
+	}
+	line = p;
 
 	done = 0;
 	while (!done) {
@@ -1015,33 +928,108 @@ generate(char *line)
 }
 
 int
+probe_haswork(void)
+{
+	return (TAILQ_FIRST(&genqueue) || entries || !synlist_empty());
+}
+
+void
+probe_send(int fd, short what, void *arg)
+{
+	struct event *ev = arg;
+	struct timeval tv;
+	int ntotal, nprobes, nsent;
+	extern int scan_nhosts;
+
+	/* Schedule the next probe */
+	if (probe_haswork()) {
+		timerclear(&tv);
+		tv.tv_usec = 1000000L / syn_rate;
+		evtimer_add(ev, &tv);
+	} else if (TAILQ_FIRST(&readyqueue) == NULL && !scan_nhosts) {
+		struct timeval tv;
+
+		/* Terminate the event loop */
+		timerclear(&tv);
+		tv.tv_sec = 2;
+		event_loopexit(&tv);
+	}
+
+	gettimeofday(&tv, NULL);
+	timersub(&tv, &syn_start, &tv);
+
+	ntotal = tv.tv_sec * syn_rate + (tv.tv_usec * syn_rate) / 1000000L;
+	nprobes = ntotal - syn_nsent;
+
+	nsent = 0;
+	while ((TAILQ_FIRST(&genqueue) || entries) && nsent < nprobes) {
+		/* Create new entries, if we need them */
+		if (!entries && TAILQ_FIRST(&genqueue)) {
+			if (populate(&args, &entries) == -1) {
+				/* 
+				 * We fail if we have used up our memory.
+				 * We also need to consume our number of
+				 * sent packets.
+				 */
+				syn_nsent = ntotal;
+				entries = 0;
+				break;
+			}
+			continue;
+		}
+
+		entries--;
+		args[entries].a_retry = 0;
+		synlist_insert(&args[entries]);
+
+		/* On failure, synlist_insert already scheduled a retransmit */
+		synlist_probe(&args[entries], args[entries].a_ports[0].port);
+
+		nsent++;
+		syn_nsent++;
+	}
+}
+
+int
 main(int argc, char **argv)
 {
-	char *name, *src = NULL, *p;
+	struct event ev_send;
+	char *name, *dev = NULL, *scanner = "ssh";
+	char *default_ports = "22";
 	int ch;
-	struct argument *args = NULL;
+	struct timeval tv, tv_start, tv_end;
+	struct rlimit rl;
 	int failonexclude = 0;
+	int milliseconds;
 
 	ssh_sendident = 1;
 
 	name = argv[0];
-	while ((ch = getopt(argc, argv, "VIhb:p:e:n:ER")) != -1)
+	while ((ch = getopt(argc, argv, "VIhdps:i:e:n:r:ER")) != -1)
 		switch(ch) {
 		case 'V':
 			fprintf(stderr, "ScanSSH %s\n", VERSION);
 			exit(0);
+#ifdef DEBUG
+		case 'd':
+			debug++;
+			break;
+#endif
 		case 'I':
 			ssh_sendident = 0;
 			break;
-		case 'b':
-			ssh_ipalias = optarg;
-			break;
 		case 'p':
-			src = optarg;
+			scanner = "http-proxy,http-connect,socks5,socks4,telnet-proxy,ssh";
+			default_ports = "23,22,80,1080,3128,6588,4480,8080,8081,8000,8100,9050";
+			break;
+		case 's':
+			scanner = optarg;
+			break;
+		case 'i':
+			dev = optarg;
 			break;
 		case 'n':
-			port = strtoul(optarg, &p, 0);
-			if (*p != '\0') {
+			if (ports_parse(optarg, &ss_ports, &ss_nports) == -1) {
 				usage(name);
 				exit(1);
 			}
@@ -1055,6 +1043,15 @@ main(int argc, char **argv)
 		case 'R':
 			rndexclude=0;
 			break;
+		case 'r':
+			syn_rate = atoi(optarg);
+			if (syn_rate == 0) {
+				fprintf(stderr, "Bad syn probe rate: %s\n",
+				    optarg);
+				usage(name);
+				exit(1);
+			}
+			break;
 		case 'h':
 		default:
 			usage(name);
@@ -1064,20 +1061,36 @@ main(int argc, char **argv)
 	argc -= optind;
 	argv += optind;
 
-	/* With probe optimization */
-	if (src) {
-		char filter[128];
+	if (scanner_parse(scanner) == -1)
+		errx(1, "bad scanner: %s", scanner);
 
-		snprintf(filter, sizeof(filter), 
-		    "(tcp[13] & 18 = 18 or tcp[13] & 4 = 4) and src port %d",
-		    port);
+	if ((ss_rand = rand_open()) == NULL)
+		err(1, "rand_open");
 
-		synprobe_init(src);
-		pd = pcap_filter_init(filter);
-		usepcap = 1;
-	} else
-		usepcap = 0;
+	if ((ss_ip = ip_open()) == NULL)
+		err(1, "ip_open");
 
+	scanssh_init();
+	
+	event_init();
+
+	interface_initialize();
+
+	/* Initialize the specified interfaces */
+	interface_init(dev, 0, NULL,
+	    "(tcp[13] & 18 = 18 or tcp[13] & 4 = 4)");
+
+	/* Raising file descriptor limits */
+	rl.rlim_max = RLIM_INFINITY;
+	rl.rlim_cur = RLIM_INFINITY;
+	if (setrlimit(RLIMIT_NOFILE, &rl) == -1) {
+		/* Linux does not seem to like this */
+		if (getrlimit(RLIMIT_NOFILE, &rl) == -1)
+			err(1, "getrlimit: NOFILE");
+		rl.rlim_cur = rl.rlim_max;
+		if (setrlimit(RLIMIT_NOFILE, &rl) == -1)
+			err(1, "setrlimit: NOFILE");
+	}
 
 	/* revoke privs */
 #ifdef HAVE_SETEUID
@@ -1085,7 +1098,11 @@ main(int argc, char **argv)
 #endif /* HAVE_SETEUID */
         setuid(getuid());
 
-	setupchildren();
+	/* Set up our port ranges */
+	if (ss_nports == 0) {
+		if (ports_parse(default_ports, &ss_ports, &ss_nports) == -1)
+			errx(1, "Error setting up port list");
+	}
 
 	if (setupexcludes() == -1 && failonexclude) {
 		warn("fopen: %s", excludefile);
@@ -1107,7 +1124,280 @@ main(int argc, char **argv)
 	if (!TAILQ_FIRST(&genqueue))
 		errx(1, "nothing to scan");
 
-	scanips();
+	gettimeofday(&syn_start, NULL);
+
+	evtimer_set(&ev_send, probe_send, &ev_send);
+	timerclear(&tv);
+	tv.tv_usec = 1000000L / syn_rate;
+	evtimer_add(&ev_send, &tv);
+
+	gettimeofday(&tv_start, NULL);
+
+	event_dispatch();
+
+	/* Measure our effective host scan rate */
+
+	gettimeofday(&tv_end, NULL);
+
+	timersub(&tv_end, &tv_start, &tv_end);
+
+	milliseconds = tv_end.tv_sec * 1000 + tv_end.tv_usec % 1000;
+
+	fprintf(stderr, "Effective host scan rate: %.2f hosts/s\n",
+	    (float)ss_nhosts / (float) milliseconds * 1000.0);
 
 	return (1);
+}
+
+void
+ports_timeout(int fd, short what, void *parameter)
+{
+	struct port_scan *ps = parameter;
+	struct argument *arg = ps->arg;
+	struct timeval tv;
+
+	if (ps->count < SYNRETRIES) {
+		ps->count++;
+		/*
+		 * If this probe fails we are not reducing the retry counter,
+		 * as some of the failures might repeat always, like a host
+		 * on the local network not being reachable or some unrouteable
+		 * address space,
+		 */
+		if (synlist_probe(arg, ps->port) == -1)
+			goto reschedule;
+
+		syn_nsent++;
+	} else {
+		printres(arg, ps->port, "<timeout>");
+		ports_remove(arg, ps->port);
+		if (arg->a_nports == 0) {
+			synlist_remove(arg);
+			argument_free(arg);
+			return;
+		}
+		return;
+	}
+
+ reschedule:
+	timerclear(&tv);
+	tv.tv_sec += (arg->a_retry/2 + 1) * SYNWAIT;
+	tv.tv_usec = rand_uint32(ss_rand) % 1000000L;
+	
+	evtimer_add(&arg->ev, &tv);
+}
+
+/* Mark a port as checked - meaning that we can connect to it */
+
+void
+ports_markchecked(struct argument *arg, struct port *port)
+{
+	struct port_scan *ps = port->scan;
+
+	DNFPRINTF(2, (stderr, "%s: %s:%d marked alive\n",
+		      __func__, addr_ntoa(&arg->addr), port->port));
+
+	if (ps == NULL) {
+		/* Populates scan structures */
+		ports_isalive(arg);
+
+		/* This argument has a new memory area now */
+		port = ports_find(arg, port->port);
+		ps = port->scan;
+	}
+
+	event_del(&ps->ev);
+	ps->flags |= PORT_CHECKED;
+}
+
+/* Checks if all ports for this host have been checked to be alive */
+
+int
+ports_isalive(struct argument *arg)
+{
+	struct port_scan *ps;
+	int i;
+
+	/* We already populated the structures */
+	if (arg->a_ports[0].scan != NULL) {
+		for (i = 0; i < arg->a_nports; i++)
+			if (!(arg->a_ports[i].scan->flags & PORT_CHECKED))
+				return (0);
+		for (i = 0; i < arg->a_nports; i++) {
+			ps = arg->a_ports[i].scan;
+			event_del(&ps->ev);
+			free(ps);
+			arg->a_ports[i].scan = NULL;
+		}
+		return (1);
+	}
+
+	/* This host was newly detected as alive */
+	for (i = 0; i < arg->a_nports; i++) {
+		struct timeval tv;
+
+		if ((ps = calloc(1, sizeof(struct port_scan))) == NULL)
+			err(1, "%s: calloc");
+		arg->a_ports[i].scan = ps;
+
+		ps->arg = arg;
+		ps->port = arg->a_ports[i].port;
+		evtimer_set(&ps->ev, ports_timeout, ps);
+
+		timerclear(&tv);
+		tv.tv_usec = rand_uint32(ss_rand) % 1000000L;
+		
+		evtimer_add(&ps->ev, &tv);
+	}
+
+	return (0);
+}
+
+/* Copy the ports list to the argument and use it for scanning */
+
+int
+ports_setup(struct argument *arg, struct port *ports, int nports)
+{
+	arg->a_hasports = 1;
+	arg->a_nports = nports;
+	if ((arg->a_ports = calloc(nports, sizeof(struct port))) == NULL)
+		err(1, "%s: calloc", __func__);
+
+	memcpy(arg->a_ports, ports, nports * sizeof(struct port));
+
+	return (0);
+}
+
+struct port *
+ports_find(struct argument *arg, uint16_t port)
+{
+	int i;
+
+	for (i = 0; i < arg->a_nports; i++)
+		if (arg->a_ports[i].port == port)
+			return (&arg->a_ports[i]);
+
+	return (NULL);
+}
+
+/* Remove one port from the list and reduce the number of available ports */
+
+int
+ports_remove(struct argument *arg, uint16_t port)
+{
+	int i;
+
+	for (i = 0; i < arg->a_nports; i++) {
+		if (arg->a_ports[i].port == port) {
+			/* Deallocate the scan structure if necessary */
+			if (arg->a_ports[i].scan != NULL) {
+				event_del(&arg->a_ports[i].scan->ev);
+				free(arg->a_ports[i].scan);
+			}
+			arg->a_nports--;
+			if (i < arg->a_nports) {
+				arg->a_ports[i] = arg->a_ports[arg->a_nports];
+			} else if (arg->a_nports == 0) {
+				free (arg->a_ports);
+				arg->a_ports = NULL;
+			}
+			return (0);
+		}
+	}
+
+	return (-1);
+}
+
+/* Parse the list of ports and put them into an array */
+
+int
+ports_parse(char *argument, struct port **pports, int *pnports)
+{
+	char buf[1024], *line = buf;
+	char *p, *e;
+	int size, count, val;
+	struct port *ports = *pports;
+	struct port port;
+
+	strlcpy(buf, argument, sizeof(buf));
+
+	memset(&port, 0, sizeof(port));
+
+	count = 0;
+	size = 0;
+	while ((p = strsep(&line, ",")) != NULL) {
+		val = strtoul(p, &e, 10);
+		if (p[0] == '\0' || *e != '\0')
+			return (-1);
+		if (val <= 0 || val > 65535)
+			return (-1);
+
+		if (count >= size) {
+			struct port *tmpports;
+			if (size == 0)
+				size = 10;
+			else
+				size <<= 1;
+
+			tmpports = realloc(ports, size*sizeof(struct port));
+			if (tmpports == NULL)
+				err(1, "realloc");
+			ports = tmpports;
+			memset(&ports[count], 0,
+			    (size - count) * sizeof(struct port));
+		}
+
+		port.port = val;
+		ports[count++] = port;
+	}
+
+	if (count == 0)
+		return (-1);
+
+	*pports = ports;
+	*pnports = count;
+	return (0);
+}
+
+/* Parse the list of scanners and put them into an array */
+
+int
+scanner_parse(char *argument)
+{
+	char buf[1024], *line = buf;
+	char *p;
+	int size, count;
+	struct scanner *scanner;
+
+	strlcpy(buf, argument, sizeof(buf));
+
+	count = 0;
+	size = 0;
+	while ((p = strsep(&line, ",")) != NULL) {
+		if ((scanner = scanner_find(p)) == NULL)
+			return (-1);
+
+		if (count >= size) {
+			struct scanner **tmpscanners;
+			if (size == 0)
+				size = 10;
+			else
+				size <<= 1;
+
+			tmpscanners = realloc(ss_scanners,
+			    size * sizeof(struct scanner *));
+			if (tmpscanners == NULL)
+				err(1, "realloc");
+			ss_scanners = tmpscanners;
+			memset(&ss_scanners[count], 0,
+			    (size - count) * sizeof(struct scanner *));
+		}
+		ss_scanners[count++] = scanner;
+	}
+
+	if (count == 0)
+		return (-1);
+
+	ss_nscanners = count;
+	return (0);
 }

@@ -29,20 +29,20 @@
 #define _SCANSSH_H_
 
 #define SSHMAPVERSION	"SSH-1.0-SSH_Version_Mapper\n"
+#define SSHUSERAGENT	"ScanSSH/2.0"
 #define MAXITER		10
-#define LONGWAIT	30
-#define SHORTWAIT	2
+#define LONGWAIT	50
+#define SHORTWAIT	30
 #define CONNECTWAIT	20
 #define SYNWAIT		1
 #define SYNRETRIES	7
 #define MAXBUF		2048
 #define MAXSYNQUEUESZ	4096
+#define MAXSCANQUEUESZ	100
 #define MAXBURST	256
 #define SEEDLEN		4
-#define EXPANDEDARGS	64000	/* number of expanded addresses */
-#define MAXSLOTS	10	/* number of slots addrs are alloced from */
-
-#define SCAN_PORT	22	/* ssh per default */
+#define EXPANDEDARGS	32000	/* number of expanded addresses */
+#define MAXSLOTS	8	/* number of slots addrs are alloced from */
 
 #define FLAGS_USERANDOM		0x01
 #define FLAGS_SUBTRACTEXCLUDE	0x02
@@ -51,28 +51,99 @@ struct argument;
 
 struct address_slot {
 	struct argument *slot_base;
-	u_int32_t slot_size;
-	u_int32_t slot_ref;
+	uint32_t slot_size;
+	uint32_t slot_ref;
+};
+
+struct argument;
+
+struct port_scan {
+	struct argument *arg;
+	uint16_t port;
+	uint8_t count;
+	uint8_t flags;
+	
+	struct event ev;
+};
+
+#define PORT_CHECKED	0x0001
+
+/* Bloated port structure */
+
+struct port {
+	uint16_t port;
+	struct port_scan *scan;
 };
 
 struct argument {
+	SPLAY_ENTRY (argument) a_node;
 	TAILQ_ENTRY (argument) a_next;
 
-	struct timeval a_tv;
-	sa_family_t a_type;
-	int a_retry;		/* what a waste of memory */
-	u_int32_t a_seqnr;
-	union {
-		struct in_addr ipv4;
-	} ip;
+	uint16_t a_retry;		/* what a waste of memory */
 
-#define a_ipv4 ip.ipv4
+	struct port *a_ports;		/* list of ports to scan */
+	uint16_t a_nports;		/* number of ports left to scan */
+	uint16_t a_hasports;
+
+	uint32_t a_seqnr;
+
+	struct addr addr;
+	int a_fd;
+
+	uint16_t a_flags;		/* state that scanners can use */
+	void *a_state;			/* opaque state for scanners */
+
+	struct scanner *a_scanner;	/* which scanner to use */
+	int a_scanneroff;		/* offset into scan structure */
 
 	struct address_slot *a_slot;
+
+	char *a_res;			/* last posted result */
+
+	struct event ev;
 };
+
+TAILQ_HEAD (queue_list, argument);
+
+struct scanner {
+	char *name;
+	char *description;
+	void (*init)(struct bufferevent *, struct argument *);
+	void (*finalize)(struct bufferevent *, struct argument *);
+	evbuffercb readcb;
+	evbuffercb writecb;
+	everrorcb  errorcb;
+};
+
+int synprobe_send(struct addr *, struct addr *, uint16_t, uint32_t *);
 
 ssize_t atomicio(ssize_t (*)(), int, void *, size_t);
 int ipv4toa(char *, size_t, void *);
 void waitforcommands(int, int);
+
+void argument_free(struct argument *);
+void postres(struct argument *, char *);
+void printres(struct argument *, uint16_t, char *);
+
+int probe_haswork(void);
+
+int ports_parse(char *, struct port **, int *);
+int ports_setup(struct argument *, struct port *, int);
+int ports_remove(struct argument *, uint16_t);
+struct port *ports_find(struct argument *, uint16_t);
+int ports_isalive(struct argument *);
+void ports_markchecked(struct argument *, struct port *);
+
+void scanhost_ready(struct argument *);
+
+void scanhost_return(struct bufferevent *bev, struct argument *, int success);
+void scanhost_fromlist(void);
+
+int scanner_parse(char *);
+struct scanner *scanner_find(char *);
+void scanner_print(char *);
+
+void http_makerequest(struct bufferevent *, struct argument *, const char *,
+    int);
 
 #endif /* _SCANSSH_H_ */

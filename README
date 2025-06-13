@@ -1,9 +1,10 @@
-SCANSSH V1.2
-------------
+SCANSSH V2.0
+-------------
 
-Scanssh scans the given addresses and networks for running SSH
-servers.  It will query their version number and displays the results
-in a list.
+ScanSSH scans the given addresses and networks for running services.
+It mainly detects open proxies and Internet services.  For known
+services, ScanSSH will query their version number and displays the
+results in a list.
 
 This program was originally written under OpenBSD as a personal
 measurement tool.  However, besides gathering statistics, it's also
@@ -15,15 +16,17 @@ It is BSD-licensed, please see the source files.
 The program requires
 
 	libpcap - http://www.tcpdump.org/
+	libevent - http://www.monkey.org/~provos/libevent/
+	libdnet - http://libdnet.sourceforge.net/
 
-Built and tested on OpenBSD and Linux, but it should also run with
+Built and tested on NetBSD, OpenBSD and Linux, but it should also run with
 other UNIX-like operating systems.
 
-On OpenBSD, you can just type make -f Makefile.openbsd, on all other
-systems
+To build,
 
 	./configure
 	make
+	make install
 
 should make you happy.
 

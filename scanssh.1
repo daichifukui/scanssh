@@ -34,23 +34,28 @@
 .Os
 .Sh NAME
 .Nm scanssh
-.Nd scans the Internet for SSH server versions
+.Nd scans the Internet for open proxies and SSH servers
 .Sh SYNOPSIS
 .Nm scanssh
-.Op Fl VIERh
-.Op Fl n Ar port
+.Op Fl VIERph
+.Op Fl s Ar scanners,...
+.Op Fl n Ar ports,...
 .Op Fl e Ar excludefile
-.Op Fl b Ar hostalias
-.Op Fl p Ar ifaddr
 .Ar addresses...
 .Sh DESCRIPTION
-.Nm
-scans the given addresses and networks for running SSH servers.  It will
-query their version number and displays the results in a list.
+.Nm ScanSSH
+scans the given addresses and networks for running services.
+It mainly allows the detection of open proxies and Internet
+services.
+For known services,
+.Nm ScanSSH
+will query their version number and displays the results in a list.
 .Pp
 The adresses can be either specified as an IPv4 address or an CIDR like
 IP prefix,
 .Ar ipaddress/masklength .
+Ports can be appended by adding a colon at the end of address
+specification.
 
 Additionally, the following two commands can be prefixed to the
 address:
@@ -83,8 +88,7 @@ Causes
 .Nm
 to print its version number.
 .It Fl I
-Does not send an identification string.  This causes the IP number
-of the scanning host to be logged.
+Does not send a SSH identification string.
 .It Fl E
 Exit the program, if the file containing the addresses for exclusion
 can not be found.
@@ -92,25 +96,40 @@ can not be found.
 If addresses are generated at random, this flag causes the program
 to ignore excluded addresses from the exclude file.  The default
 behaviour is to always exclude addresses.
+.It Fl p
+Specifies that
+.Nm ScanSSH
+should operate as a proxy detector.
+This flag sets the default modes and default scanners to detect
+open proxies.
 .It Fl h
 Displays the usage of the program.
-.It Fl n Ar port
-Specifies the port number to scan.  Currently, only 22 or 80 are
-supported.  Port number 22 scans for SSH server versions and port
-number 80 scans for HTTP server versions.  The default is 22.
+.It Fl n Ar ports,...
+Specifies the port numbers to scan.
+Ports are separated by commas.
+Each specified scanner is run for each port in this list.
+The default is 22.
+.It Fl s Ar scanners
+Specifies a number of scanners should be executed for each open port.
+Multiple scanners are separated by commas.
+The following scanners are currently supported:
+.Bl -tag -width telnetxproxyx
+.It ssh
+Finds versions for SSH, Web and SMTP servers.
+.It socks5
+Detects if a SOCKS V5 proxy is running on the port.
+.It socks4
+Detects if a SOCKS V4 proxy is running on the port.
+.It http-proxy
+Detects a HTTP get proxy.
+.It http-connect
+Detects a HTTP connect proxy.
+.It telnet-proxy
+Detects telnet based proxy servers.
+.El
 .It Fl e Ar excludefile
 Specifies the file that contains the addresses to be excluded from the scan.
 The syntax is the same as for the addresses on the command line.
-.It Fl b Ar hostalias
-Specifies the ip address of an interface alias from which connections
-should be attempted.  If
-.Fl p
-is being used, both ip addresses should be the same.
-.It Fl p Ar ifaddr
-Specifies the address of the local interface.  This is used to speed
-up the scanning by pre-probing the addresses with
-.Dv TCP-SYN
-packets.
 .El
 .Pp
 The output from 
@@ -128,21 +147,20 @@ tool included in the Apache webserver.
 .\" .Sh ENVIRONMENT
 .\" .Sh FILES
 .Sh EXAMPLES
-The following command scans the class C network 10.0.0.0 - 10.0.0.255:
+The following command scans the class C network 10.0.0.0 - 10.0.0.255
+for open proxies:
 .Bd -literal
-scanssh 10.0.0.0/24
+scanssh -p 10.0.0.0/24
 .Ed
 .Pp
-The next command uses
-.Dv SYN
-probes to speed up the scan
+The next command scans for ssh servers on port 22 only:
 .Bd -literal
-scanssh -p 10.0.0.1 192.168.0.0/16
+scanssh -n 22 -s ssh 192.168.0.0/16
 .Ed
 .Pp
 The following command can be used in a parallel scan.  Two hosts scan the specified networks randomly, where this is the first host:
 .Bd -literal
-scanssh -p 10.0.0.1 'random(0,rsd)/split(1,2)/(192.168.0.0/16 10.1.0.0/24)'
+scanssh 'random(0,rsd)/split(1,2)/(192.168.0.0/16 10.1.0.0/24):22,80'
 .Ed
 .\" This next request is for sections 1, 6, 7 & 8 only
 .\"     (command return values (to shell) and
