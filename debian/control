@@ -4,6 +4,7 @@ Priority: optional
 Maintainer: Rene Weber <rene_debmaint@public.e-mail.elvenlord.com>
 Build-Depends: debhelper-compat (= 12), libpcap0.8-dev, libdumbnet-dev, libevent-dev
 Standards-Version: 3.9.6
+Homepage: https://github.com/ofalk/scanssh
 
 Package: scanssh
 Architecture: any
