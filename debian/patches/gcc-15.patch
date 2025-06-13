@@ -2,6 +2,7 @@ Author: Andreas Tille <tille@debian.org>
 Last-Update: 2025-06-13
 Bug-Debian: https://bugs.debian.org/1097851
 Description: Modern prototype syntax to build with gcc-15
+Forwarded: https://github.com/ofalk/scanssh/issues/11
 
 --- a/atomicio.c
 +++ b/atomicio.c
