@@ -6,6 +6,8 @@ scanssh (2.1.3.1-1) UNRELEASED; urgency=medium
   * Point Vcs fields to Debian team on Salsa
   * Modern prototype syntax to build with gcc-15
     Closes: #1097851
+  * d/rules: short dh
+    Closes: #1105604
 
  -- Andreas Tille <tille@debian.org>  Fri, 13 Jun 2025 07:24:04 +0200
 
