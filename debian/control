@@ -1,7 +1,7 @@
 Source: scanssh
 Section: net
 Priority: optional
-Maintainer: Rene Weber <rene_debmaint@public.e-mail.elvenlord.com>
+Maintainer: Debian QA Group <packages@qa.debian.org>
 Build-Depends: debhelper-compat (= 12), libpcap0.8-dev, libdumbnet-dev, libevent-dev
 Standards-Version: 3.9.6
 Homepage: https://github.com/ofalk/scanssh

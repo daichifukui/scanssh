@@ -1,6 +1,7 @@
 scanssh (2.1.3.1-0.3) UNRELEASED; urgency=medium
 
   * QA upload.
+  * Orphan package
   * Add Homepage
 
  -- Andreas Tille <tille@debian.org>  Fri, 13 Jun 2025 07:24:04 +0200
