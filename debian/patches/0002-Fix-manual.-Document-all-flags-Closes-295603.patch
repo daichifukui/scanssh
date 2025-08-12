@@ -1,0 +1,91 @@
+From: =?utf-8?b?0L3QsNCx?= <nabijaczleweli@nabijaczleweli.xyz>
+Date: Fri, 13 Jun 2025 19:49:49 +0200
+Subject: Fix manual. Document all flags (Closes: #295603)
+
+---
+ scanssh.1 | 37 ++++++++++++++++++++++++++++---------
+ 1 file changed, 28 insertions(+), 9 deletions(-)
+
+diff --git a/scanssh.1 b/scanssh.1
+index d1e7bc9..d5ee22c 100644
+--- a/scanssh.1
++++ b/scanssh.1
+@@ -38,11 +38,14 @@ .Sh NAME
+ .Sh SYNOPSIS
+ .Nm scanssh
+ .Op Fl VIERph
+-.Op Fl s Ar scanners,...
+-.Op Fl n Ar ports,...
+-.Op Fl u Ar socks hosts,...
++.Op Fl s Ar scanners , Ns ...
++.Op Fl n Ar ports , Ns ...
++.Op Fl u Ar socks-hosts , Ns ...
+ .Op Fl e Ar excludefile
+-.Ar addresses...
++.Op Fl i Ar interface
++.Op Fl r Ar syn-rate
++.Op Fl m Ar max-scanqueue
++.Ar address Ns ...
+ .Sh DESCRIPTION
+ .Nm ScanSSH
+ scans the given addresses and networks for running services.
+@@ -63,7 +66,7 @@ .Sh DESCRIPTION
+ .Bl -tag -width randomxnxxseedxxx
+ .It random(n[,seed])/
+ The random command selects random address from the address range
+-specified. 
++specified.
+ The arguments are as follows:
+ .Ar n
+ is the number of address to randomly create in the given network
+@@ -105,12 +108,12 @@ .Sh DESCRIPTION
+ open proxies.
+ .It Fl h
+ Displays the usage of the program.
+-.It Fl n Ar ports,...
++.It Fl n Ar ports , Ns ...
+ Specifies the port numbers to scan.
+ Ports are separated by commas.
+ Each specified scanner is run for each port in this list.
+ The default is 22.
+-.It Fl u Ar socks hosts,...
++.It Fl u Ar socks-hosts , Ns ...
+ A list of comma separated host:port pairs of SOCKS proxies that
+ .Nm
+ should use to scan through.
+@@ -135,9 +138,25 @@ .Sh DESCRIPTION
+ .It Fl e Ar excludefile
+ Specifies the file that contains the addresses to be excluded from the scan.
+ The syntax is the same as for the addresses on the command line.
++.It Fl i Ar interface
++Call from network
++.Ar interface ,
++instead of an automatic default.
++.It Fl r Ar syn-rate
++Send SYNs every
++.Pf 1/ Ar syn-rate
++seconds.
++Default:
++.Sy 100 .
++.It Fl m Ar max-scanqueue
++Scan at most
++.Ar max-scanqueue
++hosts.
++Default:
++.Sy 100 .
+ .El
+ .Pp
+-The output from 
++The output from
+ .Nm
+ contains only IP addresses.  However, the IP addresses can be
+ converted to names with the
+@@ -179,7 +198,7 @@ .Sh EXAMPLES
+ .\" .Sh HISTORY
+ .\" .Sh AUTHORS
+ .Sh BUGS
+-At the moment, 
++At the moment,
+ .Nm
+ leaves a one line entry in the log file of the ssh server.  It is
+ probably not possible to avoid that.

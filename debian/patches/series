@@ -1,1 +1,3 @@
 gcc-15.patch
+0002-Fix-manual.-Document-all-flags-Closes-295603.patch
+0003-Drop-md5.-ch-use-libmd-dev-always.patch
