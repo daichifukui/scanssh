@@ -1,3 +1,6 @@
+scanssh for Debian
+------------------
+
 Error messages and explanations:
 
 scanssh: epoll_create: Function not implemented
@@ -5,3 +8,5 @@ scanssh: epoll_create: Function not implemented
 libevent tries to find the most efficient event notification function.  If
 libevent is compiled with support for epoll and run on a kernel that does
 not support it, it falls back to poll(). However, it spits out this warning.
+
+ -- Rene Weber <rene_debmaint@public.e-mail.elvenlord.com>  Fri, 11 Feb 2005 00:57:05 -0500
