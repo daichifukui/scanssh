@@ -1,6 +1,5 @@
 Source: scanssh
 Section: net
-Priority: optional
 Maintainer: Debian QA Group <packages@qa.debian.org>
 Build-Depends: debhelper-compat (= 13), libpcap0.8-dev, libdumbnet-dev, libevent-dev
 Standards-Version: 4.7.3
