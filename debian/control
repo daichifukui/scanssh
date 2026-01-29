@@ -3,7 +3,7 @@ Section: net
 Priority: optional
 Maintainer: Debian QA Group <packages@qa.debian.org>
 Build-Depends: debhelper-compat (= 13), libpcap0.8-dev, libdumbnet-dev, libevent-dev
-Standards-Version: 4.7.2
+Standards-Version: 4.7.3
 Vcs-Browser: https://salsa.debian.org/debian/scanssh
 Vcs-Git: https://salsa.debian.org/debian/scanssh.git
 Homepage: https://github.com/ofalk/scanssh
