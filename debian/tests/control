@@ -1,0 +1,2 @@
+Test-Command: scanssh -h 2>&1 | grep -C50 "version number"
+Restrictions: superficial

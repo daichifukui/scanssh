@@ -15,6 +15,7 @@ scanssh (2.1.3.1-2) unstable; urgency=medium
       - 03_fix-manpage.patch: created to remove empty lines and typos from
         manpage.
   * debian/README.Debian: added header and footer.
+  * debian/tests/control: added to provide a superficial CI test.
   * debian/watch: migrated to version 5.
 
  -- Joao Eriberto Mota Filho <eriberto@debian.org>  Thu, 29 Jan 2026 13:48:23 -0300
