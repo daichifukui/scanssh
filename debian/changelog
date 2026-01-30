@@ -148,6 +148,6 @@ scanssh (1.5-1) unstable; urgency=low
   * Initial Release.  (closes: #88567)
   * Incremented maximum hosts to 65536 (from 64000) and documented the
     limitation (previously undocumented).
-  * Added documentation of version number to man page and executeable.
+  * Added documentation of version number to man page and executable.
 
  -- Rene Weber <rene_debmaint@elvenlord.com>  Wed, 21 Mar 2001 19:19:44 -0500
