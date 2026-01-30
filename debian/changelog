@@ -16,6 +16,7 @@ scanssh (2.1.3.1-2) unstable; urgency=medium
         manpage.
   * debian/README.Debian: added header and footer.
   * debian/tests/control: added to provide a superficial CI test.
+  * debian/upstream/metadata: created.
   * debian/watch: migrated to version 5.
 
  -- Joao Eriberto Mota Filho <eriberto@debian.org>  Thu, 29 Jan 2026 13:48:23 -0300
