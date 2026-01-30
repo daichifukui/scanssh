@@ -10,8 +10,10 @@ scanssh (2.1.3.1-2) unstable; urgency=medium
       - Reviewed all upstream names, years, files and licensing.
   * debian/patches/:
       - gcc-15.patch: renamed to 01_gcc-15.patch and refreshed.
-      - debian/patches/02_add-option-manpage.patch: created to add option -i
-        to manpage. This option is present in program help.
+      - 02_add-option-manpage.patch: created to add option -i to manpage. This
+        option is present in program help.
+      - 03_fix-manpage.patch: created to remove empty lines and typos from
+        manpage.
   * debian/README.Debian: added header and footer.
   * debian/watch: migrated to version 5.
 
