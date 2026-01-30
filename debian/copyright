@@ -21,7 +21,7 @@ Files: compat/err.h
 Copyright: 1991-1993 The Regents of the University of California
            2000      Dug Song <dugsong@monkey.org>
 License: BSD-4-clause
-Comment: The UC California allows to remove the 3rd clause of BSD-4-clause.
+Comment: The UC California allows removing the 3rd clause of BSD-4-clause.
 
 Files: compat/libdnet/dnet.h
        compat/md5.h
@@ -33,7 +33,7 @@ Files: inet_aton.c
 Copyright: 1983-1993 The Regents of the University of California
            1993      Digital Equipment Corporation.
 License: BSD-4-clause and DEC
-Comment: The UC California allows to remove the 3rd clause of BSD-4-clause.
+Comment: The UC California allows removing the 3rd clause of BSD-4-clause.
 
 Files: inet_pton.c
 Copyright: 1996 by Internet Software Consortium
