@@ -174,14 +174,6 @@ AC_SUBST(DNETCOMPAT)
 AC_SUBST(DNETINC)
 AC_SUBST(DNETLIB)
 
-if test -z "$DNETCOMPAT"
-then
-	CFLAGS="$DNETINC"
-else
-	CFLAGS="-I$DNETCOMPAT $DNETINC"
-fi
-LIBS=$DNETLIB
-
 dnl Checks for libevent
 AC_MSG_CHECKING(for libevent)
 AC_ARG_WITH(libevent,
@@ -218,12 +210,6 @@ AC_ARG_WITH(libevent,
 )
 AC_SUBST(EVENTINC)
 AC_SUBST(EVENTLIB)
-
-CFLAGS=$EVENTINC
-LIBS=$EVENTLIB
-
-CFLAGS=""
-LIBS=""
 
 AC_HEADER_SYS_WAIT
 AC_CHECK_HEADERS(fcntl.h sys/ioctl.h sys/time.h unistd.h)
