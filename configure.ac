@@ -1,7 +1,8 @@
 dnl Process this file with autoconf to produce a configure script.
-AC_INIT([scanssh],[2.1.3.1],[https://github.com/ofalk/scanssh/issues])
+AC_INIT([scanssh],[2.1.4],[https://github.com/ofalk/scanssh/issues])
 AC_CONFIG_SRCDIR([scanssh])
 AC_CONFIG_SRCDIR(scanssh.c)
+AC_CONFIG_HEADERS([config.h])
 
 AM_INIT_AUTOMAKE
 
@@ -17,6 +18,13 @@ fi
 
 dnl Checks for programs.
 AC_PROG_CC
+
+dnl Default CFLAGS when not set by user
+if test -z "$CFLAGS"; then
+	CFLAGS="-O2 -Wall -g"
+fi
+AC_SUBST(CFLAGS)
+
 AC_PROG_INSTALL
 
 dnl XXX - Solaris sux.
@@ -94,7 +102,13 @@ AC_ARG_WITH(libpcap,
      ;;
   *)
      AC_MSG_RESULT($withval)
-     if test -f $withval/pcap.h -a -f $withval/libpcap.a; then
+     if test -f $withval/include/pcap.h -a -f $withval/lib/libpcap.a; then
+        PCAPINC="-I$withval/include -I$withval/include/bpf"
+        PCAPLIB="-L$withval/lib -lpcap"
+     elif test -f $withval/include/pcap.h -a -f $withval/libpcap.a; then
+        PCAPINC="-I$withval/include"
+        PCAPLIB="-L$withval -lpcap"
+     elif test -f $withval/pcap.h -a -f $withval/libpcap.a; then
         owd=`pwd`
         if cd $withval; then withval=`pwd`; cd $owd; fi
 	PCAPINC="-I$withval -I$withval/bpf"
@@ -103,7 +117,7 @@ AC_ARG_WITH(libpcap,
         AC_MSG_ERROR(pcap.h or libpcap.a not found in $withval)
      fi
      ;;
-  esac ],
+   esac ],
 [ if test -f ${prefix}/include/pcap.h; then
      PCAPINC="-I${prefix}/include"
      PCAPLIB="-L${prefix}/lib -lpcap"
@@ -131,15 +145,32 @@ AC_ARG_WITH(libdnet,
   *)
      AC_MSG_CHECKING(for libdnet)
      AC_MSG_RESULT($withval)
-     if test -f $withval/src/libdnet.a; then
-	DNETINC="-I$withval/include"
-	DNETLIB="-L$withval/src -ldnet `$withval/dnet-config --libs`"
+     if test -f $withval/lib/libdnet.a -o -f $withval/src/libdnet.a; then
+        if test -f $withval/include/dnet.h; then
+           DNETINC="-I$withval/include"
+        elif test -f $withval/src/dnet.h; then
+           DNETINC="-I$withval/src/include"
+        fi
+        if test -f $withval/lib/libdnet.a; then
+           DNETLIB="-L$withval/lib -ldnet"
+        elif test -f $withval/src/libdnet.a; then
+           DNETLIB="-L$withval/src -ldnet"
+        fi
      elif test -x $withval/bin/dnet-config; then
-	DNETINC="`$withval/bin/dnet-config --cflags`"
-	DNETLIB="`$withval/bin/dnet-config --libs`"
+        DNETINC="`$withval/bin/dnet-config --cflags`"
+        DNETLIB="`$withval/bin/dnet-config --libs`"
+      elif test -x /usr/local/bin/dnet-config; then
+        DNETINC="`/usr/local/bin/dnet-config --cflags`"
+        DNETLIB="`/usr/local/bin/dnet-config --libs`"
+      elif test -x /opt/homebrew/bin/dnet-config; then
+        DNETINC="`/opt/homebrew/bin/dnet-config --cflags`"
+        DNETLIB="`/opt/homebrew/bin/dnet-config --libs`"
+      elif test -x /opt/local/bin/dnet-config; then
+        DNETINC="`/opt/local/bin/dnet-config --cflags`"
+        DNETLIB="`/opt/local/bin/dnet-config --libs`"
      else
         AC_MSG_RESULT(no)
-        AC_MSG_ERROR(dnet-config not found in $withval/bin)
+        AC_MSG_ERROR(dnet-config or libdnet.a not found in $withval)
      fi
      ;;
   esac
@@ -176,11 +207,10 @@ AC_SUBST(DNETLIB)
 
 if test -z "$DNETCOMPAT"
 then
-	CFLAGS="$DNETINC"
+	CFLAGS="$CFLAGS $DNETINC"
 else
-	CFLAGS="-I$DNETCOMPAT $DNETINC"
+	CFLAGS="$CFLAGS -I$DNETCOMPAT $DNETINC"
 fi
-LIBS=$DNETLIB
 
 dnl Checks for libevent
 AC_MSG_CHECKING(for libevent)
@@ -192,7 +222,10 @@ AC_ARG_WITH(libevent,
      ;;
   *)
      AC_MSG_RESULT($withval)
-     if test -f $withval/event.h -a -f $withval/libevent.a; then
+     if test -f $withval/include/event.h -a -f $withval/lib/libevent.a; then
+        PCAPINC="-I$withval/include"
+        EVENTLIB="-L$withval/lib -levent"
+     elif test -f $withval/event.h -a -f $withval/libevent.a; then
         owd=`pwd`
         if cd $withval; then withval=`pwd`; cd $owd; fi
         EVENTINC="-I$withval"
@@ -201,7 +234,7 @@ AC_ARG_WITH(libevent,
         AC_MSG_ERROR(event.h or libevent.a not found in $withval)
      fi
      ;;
-  esac ],
+   esac ],
 [ if test -f ${prefix}/include/event.h; then
      EVENTINC="-I${prefix}/include"
      EVENTLIB="-L${prefix}/lib -levent"
@@ -219,11 +252,7 @@ AC_ARG_WITH(libevent,
 AC_SUBST(EVENTINC)
 AC_SUBST(EVENTLIB)
 
-CFLAGS=$EVENTINC
-LIBS=$EVENTLIB
-
-CFLAGS=""
-LIBS=""
+CFLAGS="$CFLAGS $EVENTINC"
 
 AC_HEADER_SYS_WAIT
 AC_CHECK_HEADERS(fcntl.h sys/ioctl.h sys/time.h unistd.h)
@@ -233,7 +262,8 @@ AC_CHECK_HEADER(sys/select.h, [havesysselect=yes], )
 if test $havesysselect = yes; then
  AC_MSG_CHECKING([for fd_mask in sys/select.h])
  AC_EGREP_HEADER(fd_mask, sys/select.h,
-  [ AC_DEFINE(HAVE_FDMASK_IN_SELECT)
+  [ AC_DEFINE(HAVE_FDMASK_IN_SELECT, 1,
+    [Define if fd_mask is defined in <sys/select.h>])
     AC_MSG_RESULT([yes])], AC_MSG_RESULT([no]))
 fi
 dnl Checks for typedefs, structures, and compiler characteristics.
@@ -246,12 +276,14 @@ AC_CHECK_TYPE(u_int8_t, unsigned char)
 
 AC_MSG_CHECKING([for struct sockaddr_storage in sys/socket.h])
 AC_EGREP_HEADER(sockaddr_storage, sys/socket.h,
-	[ AC_DEFINE(HAVE_SOCKADDR_STORAGE)
+	[ AC_DEFINE(HAVE_SOCKADDR_STORAGE, 1,
+	  [Define if your system knows about struct sockaddr_storage])
 	  AC_MSG_RESULT([yes])], AC_MSG_RESULT([no])
 )
 AC_MSG_CHECKING([for struct addrinfo in netdb.h])
 AC_EGREP_HEADER(addrinfo, netdb.h,
-	[ AC_DEFINE(HAVE_STRUCT_ADDRINFO)
+	[ AC_DEFINE(HAVE_STRUCT_ADDRINFO, 1,
+	  [Define if your system has struct addrinfo])
 	  AC_MSG_RESULT([yes])], AC_MSG_RESULT([no])
 )
 AC_MSG_CHECKING([for timeradd in sys/time.h])
@@ -261,7 +293,8 @@ AC_EGREP_CPP(yes,
 #ifdef timeradd
 yes
 #endif
-],	[ AC_DEFINE(HAVE_TIMERADD)
+],	[ AC_DEFINE(HAVE_TIMERADD, 1,
+	  [Define if timeradd is defined in <sys/time.h>])
 	  AC_MSG_RESULT([yes])], AC_MSG_RESULT([no])
 )
 AC_MSG_CHECKING([for byte order of raw socket I/O])
@@ -279,7 +312,8 @@ AC_EGREP_CPP(yes,
 	 #endif
 	],
 		AC_MSG_RESULT([good byte order]),
-			[ AC_DEFINE(BSD_RAWSOCK_ORDER)
+			[ AC_DEFINE(BSD_RAWSOCK_ORDER, 1,
+			  [Define if your raw sockets have arguments in host order as in BSD])
 			  AC_MSG_RESULT([bad byte order])
                         ]
           ),
@@ -298,14 +332,14 @@ AC_MSG_CHECKING([for sa_family_t])
 AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
  #include <sys/types.h>
  #include <sys/socket.h>]], [[sa_family_t x;]])],[AC_MSG_RESULT(yes)],[AC_MSG_RESULT([no])
-  AC_DEFINE(sa_family_t, int)
+  AC_DEFINE(sa_family_t, int, [Define to int if your system does not know about sa_family_t])
 ])
 
 AC_MSG_CHECKING([for socklen_t])
 AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
  #include <sys/types.h>
  #include <sys/socket.h>]], [[socklen_t x;]])],[AC_MSG_RESULT(yes)],[AC_MSG_RESULT([no])
-  AC_DEFINE(socklen_t, int)
+  AC_DEFINE(socklen_t, int, [Define to int if your system does not know about socklen_t])
 ])
 
 AC_MSG_CHECKING([for NI_NUMERICHOST])
@@ -313,8 +347,8 @@ AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
  #include <sys/types.h>
  #include <sys/socket.h>
  #include <netdb.h>]], [[char x[NI_NUMERICHOST];]])],[AC_MSG_RESULT(yes)],[AC_MSG_RESULT([no])
-  AC_DEFINE(NI_NUMERICHOST, 1)
-  AC_DEFINE(NI_MAXHOST, 256)
+  AC_DEFINE(NI_NUMERICHOST, 1, [NI_NUMERICHOST constant])
+  AC_DEFINE(NI_MAXHOST, 256, [NI_MAXHOST constant])
 ])
 
 AC_MSG_CHECKING([for NI_MAXSERV])
@@ -322,7 +356,7 @@ AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
  #include <sys/types.h>
  #include <sys/socket.h>
  #include <netdb.h>]], [[char x[NI_MAXSERV];]])],[AC_MSG_RESULT(yes)],[AC_MSG_RESULT([no])
-  AC_DEFINE(NI_MAXSERV, 32)
+  AC_DEFINE(NI_MAXSERV, 32, [NI_MAXSERV constant])
 ])
 
 AC_CHECK_FUNCS(gettimeofday select socket strdup strerror strtol seteuid)

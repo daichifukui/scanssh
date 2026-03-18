@@ -56,6 +56,7 @@
 
 #include "interface.h"
 #include "string-compat.h"
+#include "xmalloc.h"
 
 /* Prototypes */
 static int pcap_dloff(pcap_t *);
@@ -95,8 +96,14 @@ interface_new(char *dev)
 		err(1, "%s: calloc", __func__);
 
 	if (dev == NULL) {
-		if ((dev = pcap_lookupdev(ebuf)) == NULL)
-			errx(1, "pcap_lookupdev: %s", ebuf);
+		pcap_if_t *alldevs;
+		if (pcap_findalldevs(&alldevs, ebuf) == -1)
+			errx(1, "pcap_findalldevs: %s", ebuf);
+		if (alldevs == NULL)
+			errx(1, "pcap_findalldevs: no interfaces found");
+		strlcpy(ebuf, alldevs->name, sizeof(ebuf));
+		pcap_freealldevs(alldevs);
+		dev = ebuf;
 	}
 
 	TAILQ_INSERT_TAIL(&interfaces, inter, next);
@@ -138,6 +145,49 @@ interface_find_addr(struct addr *addr)
 	}
 
 	return (NULL);
+}
+
+struct find_dst_arg {
+	struct addr *dst;
+	char *ifname;
+};
+
+static int
+find_dst_cb(const struct intf_entry *entry, void *arg)
+{
+	struct find_dst_arg *fda = arg;
+	uint32_t mask;
+
+	if (entry->intf_addr.addr_type != ADDR_TYPE_IP)
+		return (0);
+	if (entry->intf_addr.addr_bits == 0)
+		return (0);
+
+	mask = htonl(0xFFFFFFFFu << (32 - entry->intf_addr.addr_bits));
+	if ((fda->dst->addr_ip & mask) == (entry->intf_addr.addr_ip & mask)) {
+		fda->ifname = xstrdup(entry->intf_name);
+		return (1);
+	}
+	return (0);
+}
+
+char *
+interface_find_for_dst(struct addr *dst)
+{
+	struct find_dst_arg fda;
+	intf_t *intf;
+
+	fda.dst = dst;
+	fda.ifname = NULL;
+
+	intf = intf_open();
+	if (intf == NULL)
+		return (NULL);
+
+	intf_loop(intf, find_dst_cb, &fda);
+	intf_close(intf);
+
+	return (fda.ifname);
 }
 
 void
@@ -225,8 +275,8 @@ interface_init(char *dev, int naddresses, char **addresses, char *filter)
 		struct timeval tv = SS_POLL_INTERVAL;
 
 		syslog(LOG_INFO, "switching to polling mode");
-		timeout_set(&inter->if_recvev, interface_poll_recv, inter);
-		timeout_add(&inter->if_recvev, &tv);
+		evtimer_set(&inter->if_recvev, interface_poll_recv, inter);
+		evtimer_add(&inter->if_recvev, &tv);
 	}
 }
 
@@ -258,9 +308,12 @@ interface_expandips(int naddresses, char **addresses, int dstonly)
 		}
 
 		if (addr_pton(p, &dst) != -1) {
-			snprintf(line, sizeof(line), "%s%s%s",
-			    dstonly ? "dst " : "",
-			    dst.addr_bits != 32 ? "net ": "", p);
+			if (dst.addr_bits == 32)
+				snprintf(line, sizeof(line), "%shost %s",
+				    dstonly ? "dst " : "", p);
+			else
+				snprintf(line, sizeof(line), "%snet %s/%d",
+				    dstonly ? "dst " : "", p, dst.addr_bits);
 		} else {
 			char *first, *second;
 			struct addr astart, aend;
@@ -355,7 +408,7 @@ interface_poll_recv(int fd, short type, void *arg)
 	struct interface *inter = arg;
 	struct timeval tv = SS_POLL_INTERVAL;
 
-	timeout_add(&inter->if_recvev, &tv);
+	evtimer_add(&inter->if_recvev, &tv);
 
 	interface_recv(fd, type, arg);
 }
