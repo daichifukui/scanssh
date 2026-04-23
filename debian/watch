@@ -4,3 +4,4 @@ Source: https://github.com/ofalk/scanssh.git
 Matching-Pattern: refs/tags/([\d\.]+)
 Mode: git
 Update-Script: uupdate
+Pgp-Mode: gittag
