@@ -1,3 +1,15 @@
+scanssh (2.1.4-1) unstable; urgency=medium
+
+  * New upstream version 2.1.4 (Closes: #1119555)
+    The issue is already fixed at upstream.
+  * New maintainer (Closes: #1125424)
+  * Remove debian/patches files
+    Because they are already applied at upstream.
+  * Add signing key and enable GPG tag verification
+  * Remove obsolete d/README.Debian
+
+ -- Fukui Daichi <a.dog.will.talk@akane.waseda.jp>  Thu, 23 Apr 2026 14:59:05 +0000
+
 scanssh (2.1.3.1-2) unstable; urgency=medium
 
   * QA upload.
