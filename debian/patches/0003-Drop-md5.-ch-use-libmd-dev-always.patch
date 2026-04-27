@@ -6,8 +6,8 @@ Subject: Drop md5.[ch], use libmd-dev always
  Makefile.am  |   6 +-
  compat/md5.h |  29 ------
  configure.ac |  13 +--
- md5.c        | 320 -----------------------------------------------------------
- 4 files changed, 7 insertions(+), 361 deletions(-)
+ md5.c        | 309 --------------------------------------------------------
+ 4 files changed, 7 insertions(+), 350 deletions(-)
  delete mode 100644 compat/md5.h
  delete mode 100644 md5.c
 
@@ -18,18 +18,19 @@ index 36a8a27..84f1e4f 100644
 @@ -5,7 +5,7 @@ bin_PROGRAMS = scanssh
  scanssh_SOURCES = scanssh.c atomicio.c exclude.c connecter.c xmalloc.c \
  	interface.c socks.c http.c telnet.c exclude.h interface.h \
- 	scanssh.h socks.h xmalloc.h
+ 	scanssh.h socks.h string-compat.h xmalloc.h
 -scanssh_LDADD = @LIBOBJS@ @PCAPLIB@ @EVENTLIB@ @DNETLIB@
 +scanssh_LDADD = @LIBOBJS@ @PCAPLIB@ @EVENTLIB@ @DNETLIB@ -lmd
- CFLAGS = -O2 -Wall -g
+ CFLAGS = @CFLAGS@
  
  AM_CPPFLAGS = -I$(top_srcdir)/@DNETCOMPAT@ -I$(top_srcdir)/compat \
 @@ -14,9 +14,9 @@ AM_CPPFLAGS = -I$(top_srcdir)/@DNETCOMPAT@ -I$(top_srcdir)/compat \
  man_MANS = scanssh.1
  
- EXTRA_DIST = $(man_MANS) README.md acconfig.h \
--	   md5.c err.c \
-+	   err.c \
+-EXTRA_DIST = $(man_MANS) README.md RELEASING.md \
+-	   md5.c err.c string-compat.h \
++EXTRA_DIST = $(man_MANS) README.md RELEASING.md \
++	   err.c string-compat.h \
  	   compat/libdnet/dnet.h \
 -	   compat/err.h compat/md5.h \
 +	   compat/err.h \
@@ -121,10 +122,10 @@ index 9026e49..5d14eed 100644
   #include <sys/types.h>
 diff --git a/md5.c b/md5.c
 deleted file mode 100644
-index 40a5e76..0000000
+index b6537df..0000000
 --- a/md5.c
 +++ /dev/null
-@@ -1,320 +0,0 @@
+@@ -1,309 +0,0 @@
 -/*
 - * This code implements the MD5 message-digest algorithm.
 - * The algorithm is due to Ron Rivest.  This code was
@@ -167,17 +168,14 @@ index 40a5e76..0000000
 -   surprised if they were a performance bottleneck for MD5.  */
 -
 -static uint32
--getu32 (addr)
--     const unsigned char *addr;
+-getu32(const unsigned char *addr)
 -{
 -	return (((((unsigned long)addr[3] << 8) | addr[2]) << 8)
 -		| addr[1]) << 8 | addr[0];
 -}
 -
 -static void
--putu32 (data, addr)
--     uint32 data;
--     unsigned char *addr;
+-putu32(uint32 data, unsigned char *addr)
 -{
 -	addr[0] = (unsigned char)data;
 -	addr[1] = (unsigned char)(data >> 8);
@@ -190,8 +188,7 @@ index 40a5e76..0000000
 - * initialization constants.
 - */
 -void
--MD5Init(ctx)
--     struct MD5Context *ctx;
+-MD5Init(struct MD5Context *ctx)
 -{
 -	ctx->buf[0] = 0x67452301;
 -	ctx->buf[1] = 0xefcdab89;
@@ -207,10 +204,7 @@ index 40a5e76..0000000
 - * of bytes.
 - */
 -void
--MD5Update(ctx, buf, len)
--     struct MD5Context *ctx;
--     unsigned char const *buf;
--     unsigned len;
+-MD5Update(struct MD5Context *ctx, unsigned char const *buf, unsigned len)
 -{
 -	uint32 t;
 -
@@ -258,9 +252,7 @@ index 40a5e76..0000000
 - * 1 0* (64-bit count of bits processed, MSB-first)
 - */
 -void
--MD5Final(digest, ctx)
--     unsigned char digest[16];
--     struct MD5Context *ctx;
+-MD5Final(unsigned char digest[16], struct MD5Context *ctx)
 -{
 -	unsigned count;
 -	unsigned char *p;
@@ -298,7 +290,7 @@ index 40a5e76..0000000
 -	putu32(ctx->buf[1], digest + 4);
 -	putu32(ctx->buf[2], digest + 8);
 -	putu32(ctx->buf[3], digest + 12);
--	memset(ctx, 0, sizeof(ctx));	/* In case it's sensitive */
+-	memset(ctx, 0, sizeof(*ctx));	/* In case it's sensitive */
 -}
 -
 -#ifndef ASM_MD5
@@ -321,9 +313,7 @@ index 40a5e76..0000000
 - * the data and converts bytes into longwords for this routine.
 - */
 -void
--MD5Transform(buf, inraw)
--     uint32 buf[4];
--     const unsigned char inraw[64];
+-MD5Transform(uint32 buf[4], const unsigned char inraw[64])
 -{
 -	register uint32 a, b, c, d;
 -	uint32 in[16];
