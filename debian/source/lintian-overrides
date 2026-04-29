@@ -1,0 +1,3 @@
+# Upstream verification is done via signed Git tags (debian/watch: Pgp-Mode: gittag),
+# so there is no detached .orig.tar.*.asc signature to ship in the source upload.
+scanssh source: orig-tarball-missing-upstream-signature
