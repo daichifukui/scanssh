@@ -1,6 +1,7 @@
 From: =?utf-8?b?0L3QsNCx?= <nabijaczleweli@nabijaczleweli.xyz>
-Date: Fri, 13 Jun 2025 19:49:49 +0200
+Last-Update: 2025-06-13
 Subject: Fix manual. Document all flags (Closes: #295603)
+Forwarded: https://github.com/ofalk/scanssh/pull/33
 
 ---
  scanssh.1 | 37 ++++++++++++++++++++++++++++---------

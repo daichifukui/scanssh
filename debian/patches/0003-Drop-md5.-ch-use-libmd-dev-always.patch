@@ -1,6 +1,7 @@
 From: =?utf-8?b?0L3QsNCx?= <nabijaczleweli@nabijaczleweli.xyz>
-Date: Fri, 13 Jun 2025 20:05:43 +0200
+Last-Update: 2025-06-13
 Subject: Drop md5.[ch], use libmd-dev always
+Forwarded: not-needed
 
 ---
  Makefile.am  |   6 +-
