@@ -1,5 +1,6 @@
 scanssh (2.1.4-1) unstable; urgency=medium
 
+  [ Fukui Daichi ]
   * New upstream version 2.1.4 (Closes: #1119555)
     The issue is already fixed at upstream.
   * New maintainer (Closes: #1125424)
@@ -7,6 +8,17 @@ scanssh (2.1.4-1) unstable; urgency=medium
     Because they are already applied at upstream.
   * Add signing key and enable GPG tag verification
   * Remove obsolete d/README.Debian
+  * Adjust drop-md5 patch for upstream 2.1.4 changes
+  * d/patches: Update to follow DEP3 and add missing series file
+  * Add d/s/lintian-overrides
+    False positive: verified via signed Git tags rather than .asc
+  * d/patches: Document missing help options in usage output
+
+  [ наб ]
+  * Fix manual formatting
+  * Document all flags in manual
+    Closes: #295603
+  * Drop md5.[ch], Depends: libmd-dev
 
  -- Fukui Daichi <a.dog.will.talk@akane.waseda.jp>  Thu, 23 Apr 2026 14:59:05 +0000
 
@@ -35,7 +47,6 @@ scanssh (2.1.3.1-2) unstable; urgency=medium
 
 scanssh (2.1.3.1-1) unstable; urgency=medium
 
-  [ Andreas Tille ]
   * QA upload.
   * Orphan package
     Closes: #1107729
@@ -49,13 +60,7 @@ scanssh (2.1.3.1-1) unstable; urgency=medium
   * Standards-Version: 4.7.2 (routine-update)
   * debhelper-compat 13 (routine-update)
 
-  [ наб ]
-  * Fix manual formatting
-  * Document all flags in manual
-    Closes: #295603
-  * Drop md5.[ch], Depends: libmd-dev
-
- -- наб <nabijaczleweli@nabijaczleweli.xyz>  Fri, 13 Jun 2025 20:11:06 +0200
+ -- Andreas Tille <tille@debian.org>  Fri, 13 Jun 2025 07:24:04 +0200
 
 scanssh (2.1.3.1-0.2) unstable; urgency=medium
 
